@@ -1,23 +1,26 @@
 using System.Collections.Generic;
 using UnityEngine;
 
-
+// Stores everything about the player's day.
+// Put this on an empty GameObject called "GameState" in your scene.
 public class GameState : MonoBehaviour
 {
     public static GameState Instance { get; private set; }
 
     [Header("Starting Values")]
-    public int startTimeMinutes = 390;  
+    public int startTimeMinutes = 390;   // 6:30 AM (minutes since midnight)
     public int startEnergy = 5;
     public int startMood = 5;
 
-    [Header("Work")]
-    public int workStartMinutes = 480;  
+    [Header("Work Hours")]
+    public int workStartMinutes = 480;   // 8:00 AM
+    public int workEndMinutes = 1020;    // 5:00 PM
 
     [Header("Current State (read-only at runtime)")]
     public int timeMinutes;
     public int energy;
     public int mood;
+    public Location currentLocation;
 
     private readonly HashSet<string> flags = new HashSet<string>();
     private readonly List<string> history = new List<string>();
@@ -34,60 +37,52 @@ public class GameState : MonoBehaviour
         ResetState();
     }
 
-
     public void ResetState()
     {
         timeMinutes = startTimeMinutes;
         energy = startEnergy;
         mood = startMood;
+        currentLocation = Location.Home;
         flags.Clear();
         history.Clear();
     }
 
+    // ---------- Time ----------
+
+    // Converts a clock time to minutes since midnight. TimeOf(17, 30) = 5:30 PM.
+    public static int TimeOf(int hour, int minute = 0)
+    {
+        return hour * 60 + minute;
+    }
 
     public void AddTime(int minutes)
     {
         timeMinutes += minutes;
     }
 
-    public void ChangeEnergy(int amount)
+    // Jumps forward to a time, but never backwards.
+    public void AdvanceTo(int targetMinutes)
     {
-        energy = Mathf.Clamp(energy + amount, 0, 10);
+        if (timeMinutes < targetMinutes)
+            timeMinutes = targetMinutes;
     }
 
-    public void ChangeMood(int amount)
+    // True if it's earlier than hour:minute.
+    public bool IsBefore(int hour, int minute = 0)
     {
-        mood = Mathf.Clamp(mood + amount, 0, 10);
+        return timeMinutes < TimeOf(hour, minute);
     }
 
-
-    public void AddFlag(string flag)
+    // True if it's hour:minute or later.
+    public bool IsAfter(int hour, int minute = 0)
     {
-        flags.Add(flag);
+        return timeMinutes >= TimeOf(hour, minute);
     }
 
-    public bool HasFlag(string flag)
+    public bool IsLateForWork()
     {
-        return flags.Contains(flag);
+        return timeMinutes > workStartMinutes;
     }
-
-    public void RemoveFlag(string flag)
-    {
-        flags.Remove(flag);
-    }
-
-
-    public void AddHistory(string entry)
-    {
-        history.Add($"[{GetTimeString()}] {entry}");
-        Debug.Log($"History: {entry}");
-    }
-
-    public IReadOnlyList<string> GetHistory()
-    {
-        return history;
-    }
-
 
     public string GetTimeString()
     {
@@ -101,13 +96,34 @@ public class GameState : MonoBehaviour
         return $"{displayHours}:{minutes:D2} {suffix}";
     }
 
-    public bool IsLate()
+    // ---------- Stats ----------
+
+    public void ChangeEnergy(int amount)
     {
-        return timeMinutes > workStartMinutes;
+        energy = Mathf.Clamp(energy + amount, 0, 10);
     }
 
-    public int MinutesLate()
+    public void ChangeMood(int amount)
     {
-        return Mathf.Max(0, timeMinutes - workStartMinutes);
+        mood = Mathf.Clamp(mood + amount, 0, 10);
+    }
+
+    // ---------- Flags ----------
+
+    public void AddFlag(string flag) => flags.Add(flag);
+    public bool HasFlag(string flag) => flags.Contains(flag);
+    public void RemoveFlag(string flag) => flags.Remove(flag);
+
+    // ---------- History ----------
+
+    public void AddHistory(string entry)
+    {
+        history.Add($"[{GetTimeString()}] {entry}");
+        Debug.Log($"History: {entry}");
+    }
+
+    public IReadOnlyList<string> GetHistory()
+    {
+        return history;
     }
 }

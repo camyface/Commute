@@ -1,236 +1,176 @@
+using System;
+using System.Collections.Generic;
 using System.Text;
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
 
+// Pairs a location with its background image (filled in from the Inspector).
+[Serializable]
+public class LocationBackground
+{
+    public Location location;
+    public Sprite sprite;
+}
 
+// Runs the day and shows events on screen.
+// Put this on an empty GameObject called "EventManager".
+//
+// Button wiring (do this once, in the Inspector):
+//   ChoiceButton1   -> EventUI.ChooseOption(0)
+//   ChoiceButton2   -> EventUI.ChooseOption(1)
+//   PlayAgainButton -> EventUI.RestartDay()
 public class EventUI : MonoBehaviour
 {
-    [Header("UI References")]
+    [Header("Event Panel")]
+    public GameObject eventPanel;
     public TMP_Text eventText;
     public Button[] choiceButtons;
-    public TMP_Text statusText;   
+
+    [Header("HUD")]
+    public TMP_Text timeText;      // clock in the top-right corner
+    public TMP_Text statusText;    // optional: energy / mood
+
+    [Header("Backgrounds")]
+    public Image backgroundImage;
+    public LocationBackground[] backgrounds;
 
     [Header("Summary Panel")]
-    public GameObject eventPanel;    
     public GameObject summaryPanel;
     public TMP_Text summaryText;
 
-    private string currentEvent;
+    private List<DayStage> day;
+    private int stageIndex;
+    private int eventIndex;
+    private List<EventChoice> currentChoices = new List<EventChoice>();
 
     void Start()
     {
-        summaryPanel.SetActive(false);
-        ShowAlarmEvent();
+        StartDay();
     }
 
+    // ================= BUTTONS =================
 
     public void ChooseOption(int option)
     {
-        switch (currentEvent)
-        {
-            case "Alarm": HandleAlarmChoice(option); break;
-            case "Breakfast": HandleBreakfastChoice(option); break;
-            case "LeaveHouse": HandleLeaveHouseChoice(option); break;
-            case "Neighbor": HandleNeighborChoice(option); break;
-            case "Route": HandleRouteChoice(option); break;
-            case "Arrive": ShowSummary(); break;
-            default:
-                Debug.LogWarning($"No handler for event: {currentEvent}");
-                break;
-        }
+        if (option < 0 || option >= currentChoices.Count) return;
+
+        currentChoices[option].onChoose?.Invoke();
+        ShowNextEvent();
     }
 
-
-    private void ShowAlarmEvent()
+    public void RestartDay()
     {
-        currentEvent = "Alarm";
-        SetEvent("Your alarm goes off at 6:30 AM.",
-                 "1. Get up",
-                 "2. Snooze");
+        StartDay();
     }
 
-    private void HandleAlarmChoice(int option)
+    // ================= DAY FLOW =================
+
+    private void StartDay()
     {
-        var gs = GameState.Instance;
+        GameState.Instance.ResetState();
 
-        if (option == 0)
-        {
-            gs.AddHistory("Got up when the alarm went off");
-        }
-        else
-        {
-            gs.AddTime(10);
-            gs.ChangeEnergy(1);
-            gs.AddFlag("SnoozedAlarm");
-            gs.AddHistory("Snoozed the alarm for 10 minutes");
-        }
+        day = DayEvents.BuildDay();
+        stageIndex = 0;
+        eventIndex = 0;
 
-        gs.AddTime(30); 
-        ShowBreakfastEvent();
+        summaryPanel.SetActive(false);
+        if (eventPanel != null) eventPanel.SetActive(true);
+
+        ShowNextEvent();
     }
 
-
-    private void ShowBreakfastEvent()
+    // Finds the next event whose conditions pass, moving through locations in order.
+    private void ShowNextEvent()
     {
-        currentEvent = "Breakfast";
-
-        string text = GameState.Instance.HasFlag("SnoozedAlarm")
-            ? "You're dressed, but running a little behind. Eat breakfast anyway?"
-            : "You're dressed with some time to spare. Eat breakfast?";
-
-        SetEvent(text, "1. Eat breakfast", "2. Skip breakfast");
-    }
-
-    private void HandleBreakfastChoice(int option)
-    {
-        var gs = GameState.Instance;
-
-        if (option == 0)
+        while (stageIndex < day.Count)
         {
-            gs.AddTime(15);
-            gs.ChangeEnergy(2);
-            gs.AddFlag("AteBreakfast");
-            gs.AddHistory("Ate breakfast");
-        }
-        else
-        {
-            gs.ChangeEnergy(-1);
-            gs.AddFlag("SkippedBreakfast");
-            gs.AddHistory("Skipped breakfast");
-        }
+            DayStage stage = day[stageIndex];
 
-        ShowLeaveHouseEvent();
-    }
-
-
-    private void ShowLeaveHouseEvent()
-    {
-        currentEvent = "LeaveHouse";
-        SetEvent("You grab your keys. The sky looks cloudy. Take an umbrella?",
-                 "1. Take umbrella",
-                 "2. Leave it");
-    }
-
-    private void HandleLeaveHouseChoice(int option)
-    {
-        var gs = GameState.Instance;
-
-        if (option == 0)
-        {
-            gs.AddFlag("HasUmbrella");
-            gs.AddHistory("Took an umbrella");
-        }
-        else
-        {
-            gs.AddHistory("Left the umbrella at home");
-        }
-
-        ShowNeighborEvent();
-    }
-
-
-    private void ShowNeighborEvent()
-    {
-        currentEvent = "Neighbor";
-        SetEvent("Your neighbor waves you over. They look like they want to chat.",
-                 "1. Stop and chat",
-                 "2. Wave and keep walking");
-    }
-
-    private void HandleNeighborChoice(int option)
-    {
-        var gs = GameState.Instance;
-
-        if (option == 0)
-        {
-            gs.AddTime(15);
-            gs.ChangeMood(1);
-            gs.AddFlag("ChattedWithNeighbor");
-            gs.AddHistory("Chatted with the neighbor");
-        }
-        else
-        {
-            gs.ChangeMood(-1);
-            gs.AddFlag("IgnoredNeighbor");
-            gs.AddHistory("Brushed off the neighbor");
-        }
-
-        ShowRouteEvent();
-    }
-
-
-    private void ShowRouteEvent()
-    {
-        currentEvent = "Route";
-        SetEvent($"It's {GameState.Instance.GetTimeString()}. How do you get to work?",
-                 "1. Take the bus",
-                 "2. Walk");
-    }
-
-    private void HandleRouteChoice(int option)
-    {
-        var gs = GameState.Instance;
-
-        if (option == 0)
-        {
-            gs.AddTime(45);
-            gs.AddHistory("Took the bus");
-
-            if (gs.HasFlag("SnoozedAlarm"))
+            while (eventIndex < stage.events.Count)
             {
-                gs.AddTime(10);
-                gs.AddHistory("Missed the usual bus and waited for the next one");
-            }
-        }
-        else
-        {
-            gs.AddTime(60);
-            gs.ChangeEnergy(-1);
-            gs.AddHistory("Walked to work");
+                GameEvent ev = stage.events[eventIndex];
+                eventIndex++;
 
-            if (gs.HasFlag("SkippedBreakfast"))
-            {
-                gs.ChangeEnergy(-1);
-                gs.AddHistory("Felt light-headed on the walk");
+                if (ev.CanShow())
+                {
+                    ShowEvent(ev, stage.location);
+                    return;
+                }
             }
 
-            if (!gs.HasFlag("HasUmbrella"))
+            stageIndex++;
+            eventIndex = 0;
+        }
+
+        ShowSummary();
+    }
+
+    private void ShowEvent(GameEvent ev, Location location)
+    {
+        GameState.Instance.currentLocation = location;
+        SetBackground(location);
+
+        eventText.text = ev.Text;
+
+        currentChoices = ev.GetAvailableChoices();
+        if (currentChoices.Count == 0)
+            currentChoices.Add(new EventChoice { label = "Continue" });
+
+        if (currentChoices.Count > choiceButtons.Length)
+            Debug.LogWarning($"Event '{ev.id}' has {currentChoices.Count} choices but only {choiceButtons.Length} buttons.");
+
+        for (int i = 0; i < choiceButtons.Length; i++)
+        {
+            bool used = i < currentChoices.Count;
+            choiceButtons[i].gameObject.SetActive(used);
+
+            if (used)
+                choiceButtons[i].GetComponentInChildren<TMP_Text>().text = currentChoices[i].label;
+        }
+
+        UpdateHUD();
+    }
+
+    // ================= BACKGROUND =================
+
+    private void SetBackground(Location location)
+    {
+        if (backgroundImage == null) return;
+
+        foreach (var bg in backgrounds)
+        {
+            if (bg.location == location)
             {
-                gs.ChangeMood(-2);
-                gs.AddFlag("GotWet");
-                gs.AddHistory("Got caught in the rain");
+                backgroundImage.sprite = bg.sprite;
+                return;
             }
         }
 
-        ShowArriveEvent();
+        Debug.LogWarning($"No background assigned for {location}");
     }
 
+    // ================= HUD =================
 
-    private void ShowArriveEvent()
+    private void UpdateHUD()
     {
-        currentEvent = "Arrive";
         var gs = GameState.Instance;
 
-        string text = gs.IsLate()
-            ? $"You arrive at {gs.GetTimeString()}, {gs.MinutesLate()} minutes late. Your boss notices."
-            : $"You arrive at {gs.GetTimeString()}. Right on time.";
+        if (timeText != null)
+            timeText.text = gs.GetTimeString();
 
-        if (gs.HasFlag("GotWet"))
-            text += "\nYou're also dripping wet.";
-
-        SetEvent(text, "See summary");
+        if (statusText != null)
+            statusText.text = $"Energy: {gs.energy}   Mood: {gs.mood}";
     }
 
-
+    // ================= SUMMARY =================
 
     private void ShowSummary()
     {
-        currentEvent = "Summary";
         var gs = GameState.Instance;
 
         var sb = new StringBuilder();
-        sb.AppendLine(gs.IsLate() ? "<b>You were late.</b>" : "<b>You made it on time!</b>");
+        sb.AppendLine(gs.HasFlag("LateToWork") ? "<b>You were late to work.</b>" : "<b>You made it to work on time!</b>");
         sb.AppendLine($"Energy: {gs.energy}   Mood: {gs.mood}");
         sb.AppendLine();
 
@@ -241,39 +181,6 @@ public class EventUI : MonoBehaviour
 
         if (eventPanel != null) eventPanel.SetActive(false);
         summaryPanel.SetActive(true);
-    }
-
-    public void RestartDay()
-    {
-        summaryPanel.SetActive(false);
-        if (eventPanel != null) eventPanel.SetActive(true);
-
-        GameState.Instance.ResetState();
-        ShowAlarmEvent();
-    }
-
- 
-    private void SetEvent(string text, params string[] choices)
-    {
-        eventText.text = text;
-
-        for (int i = 0; i < choiceButtons.Length; i++)
-        {
-            bool used = i < choices.Length;
-            choiceButtons[i].gameObject.SetActive(used);
-
-            if (used)
-                choiceButtons[i].GetComponentInChildren<TMP_Text>().text = choices[i];
-        }
-
-        UpdateStatus();
-    }
-
-    private void UpdateStatus()
-    {
-        if (statusText == null) return;
-
-        var gs = GameState.Instance;
-        statusText.text = $"{gs.GetTimeString()}   Energy: {gs.energy}   Mood: {gs.mood}";
+        UpdateHUD();
     }
 }
