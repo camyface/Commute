@@ -39,7 +39,14 @@ public class EventUI : MonoBehaviour
     public AudioSource ambientAudioSource;
     public AudioSource specialAudioSource;
     public AudioClip[] ambientAudioClips;   // one per Location, in enum order
-    public AudioClip[] specialAudioClips;
+
+    [System.Serializable]
+    public class SpecialSound
+    {
+        public string id;          // for debugging, e.g. "Doorbell"
+        public AudioClip clip;     // the sound effect
+    }
+    public List<SpecialSound> specialAudioClips;   // for one-shot sound effects
 
     [Header("Summary Panel")]
     public GameObject summaryPanel;
@@ -140,6 +147,7 @@ public class EventUI : MonoBehaviour
         GameState.Instance.currentLocation = location;
         SetBackground(location);
         SetAudio(location);
+        PlaySpecialSound(ev.id);
 
         eventText.text = ev.Text;
 
@@ -207,18 +215,19 @@ public class EventUI : MonoBehaviour
     }
 
     // Plays a one-shot sound effect over the ambient audio.
-    // Call from an event choice, e.g. EventUI.Instance.PlaySpecial(0)
-    public void PlaySpecial(int index)
+    // Call from an event choice, e.g. EventUI.Instance.PlaySpecialSound(string id)
+    public void PlaySpecialSound(string id)
     {
         if (specialAudioSource == null || specialAudioClips == null) return;
 
-        if (index < 0 || index >= specialAudioClips.Length || specialAudioClips[index] == null)
+        var specialSound = specialAudioClips.Find(sound => sound.id == id);
+        if (specialSound == null || specialSound.clip == null)
         {
-            Debug.LogWarning($"No special audio clip at index {index}");
+            Debug.LogWarning($"No special audio clip found for ID: {id}");
             return;
         }
 
-        specialAudioSource.PlayOneShot(specialAudioClips[index]);
+        specialAudioSource.PlayOneShot(specialSound.clip);
     }
 
     // ================= HUD =================
