@@ -35,6 +35,12 @@ public class EventUI : MonoBehaviour
     public Image backgroundImage;
     public LocationBackground[] backgrounds;
 
+    [Header("Sounds")]
+    public AudioSource ambientAudioSource;
+    public AudioSource specialAudioSource;
+    public AudioClip[] ambientAudioClips;
+    public AudioClip[] specialAudioClips;
+
     [Header("Summary Panel")]
     public GameObject summaryPanel;
     public TMP_Text summaryText;
@@ -110,6 +116,7 @@ public class EventUI : MonoBehaviour
     {
         GameState.Instance.currentLocation = location;
         SetBackground(location);
+        SetAudio(location);
 
         eventText.text = ev.Text;
 
@@ -148,6 +155,23 @@ public class EventUI : MonoBehaviour
         }
 
         Debug.LogWarning($"No background assigned for {location}");
+    }
+
+    // ================== AUDIO =================
+    private void SetAudio(Location location)
+    {
+        if (ambientAudioSource == null || ambientAudioClips.Length == 0) return;
+        if (specialAudioSource == null || specialAudioClips.Length == 0) return;
+        int index = (int)location;
+        if (index < 0 || index >= ambientAudioClips.Length || (ambientAudioSource.clip == ambientAudioClips[index] && ambientAudioSource.isPlaying))
+        {
+            Debug.LogWarning($"No ambient audio clip assigned for {location} {index}");
+            return;
+        }
+        Debug.Log($"Playing audio for {location}: {ambientAudioClips[index].name} {index}");
+        ambientAudioSource.Stop();
+        ambientAudioSource.clip = ambientAudioClips[index];
+        ambientAudioSource.Play();
     }
 
     // ================= HUD =================
