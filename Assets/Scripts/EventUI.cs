@@ -13,13 +13,13 @@ public class LocationBackground
     public Sprite sprite;
 }
 
-// Runs the day and shows events on screen.
+// Runs the week and shows events on screen.
 // Put this on an empty GameObject called "EventManager".
 //
 // Button wiring (do this once, in the Inspector):
-//   ChoiceButton1   -> EventUI.ChooseOption(0)
-//   ChoiceButton2   -> EventUI.ChooseOption(1)
-//   PlayAgainButton -> EventUI.RestartDay()
+//   ChoiceButton1  -> EventUI.ChooseOption(0)
+//   ChoiceButton2  -> EventUI.ChooseOption(1)
+//   SummaryButton  -> EventUI.SummaryButtonPressed()
 public class EventUI : MonoBehaviour
 {
     [Header("Event Panel")]
@@ -28,7 +28,7 @@ public class EventUI : MonoBehaviour
     public Button[] choiceButtons;
 
     [Header("HUD")]
-    public TMP_Text timeText;      // clock in the top-right corner
+    public TMP_Text timeText;      // day + clock in the top-right corner
     public TMP_Text statusText;    // optional: energy / mood
 
     [Header("Backgrounds")]
@@ -38,21 +38,31 @@ public class EventUI : MonoBehaviour
     [Header("Sounds")]
     public AudioSource ambientAudioSource;
     public AudioSource specialAudioSource;
-    public AudioClip[] ambientAudioClips;
+    public AudioClip[] ambientAudioClips;   // one per Location, in enum order
     public AudioClip[] specialAudioClips;
 
     [Header("Summary Panel")]
     public GameObject summaryPanel;
     public TMP_Text summaryText;
+    public TMP_Text summaryButtonText;   // label on the summary panel's button
+    public ScrollRect summaryScroll;     // optional: the Scroll View around SummaryText
 
     private List<DayStage> day;
     private int stageIndex;
     private int eventIndex;
     private List<EventChoice> currentChoices = new List<EventChoice>();
 
+    // Lets event code call things like EventUI.Instance.PlaySpecial(0).
+    public static EventUI Instance { get; private set; }
+
+    void Awake()
+    {
+        Instance = this;
+    }
+
     void Start()
     {
-        StartDay();
+        StartWeek();
     }
 
     // ================= BUTTONS =================
@@ -65,17 +75,30 @@ public class EventUI : MonoBehaviour
         ShowNextEvent();
     }
 
-    public void RestartDay()
+    // "Next day" after days 1-4, "Play again" after day 5.
+    public void SummaryButtonPressed()
     {
+        if (GameState.Instance.IsLastDay)
+        {
+            StartWeek();
+        }
+        else
+        {
+            GameState.Instance.StartNewDay();
+            StartDay();
+        }
+    }
+
+    // ================= WEEK / DAY FLOW =================
+
+    private void StartWeek()
+    {
+        GameState.Instance.ResetState();
         StartDay();
     }
 
-    // ================= DAY FLOW =================
-
     private void StartDay()
     {
-        GameState.Instance.ResetState();
-
         day = DayEvents.BuildDay();
         stageIndex = 0;
         eventIndex = 0;
@@ -109,7 +132,7 @@ public class EventUI : MonoBehaviour
             eventIndex = 0;
         }
 
-        ShowSummary();
+        ShowDaySummary();
     }
 
     private void ShowEvent(GameEvent ev, Location location)
@@ -157,21 +180,45 @@ public class EventUI : MonoBehaviour
         Debug.LogWarning($"No background assigned for {location}");
     }
 
-    // ================== AUDIO =================
+    // ================= AUDIO =================
+
+    // Plays the ambient loop for a location. Clips are matched by enum order:
+    // 0 Home, 1 OutsideHome, 2 CommuteToWork, 3 OutsideWork, 4 Work, 5 CommuteHome
     private void SetAudio(Location location)
     {
-        if (ambientAudioSource == null || ambientAudioClips.Length == 0) return;
-        if (specialAudioSource == null || specialAudioClips.Length == 0) return;
+        if (ambientAudioSource == null || ambientAudioClips == null || ambientAudioClips.Length == 0) return;
+
         int index = (int)location;
-        if (index < 0 || index >= ambientAudioClips.Length || (ambientAudioSource.clip == ambientAudioClips[index] && ambientAudioSource.isPlaying))
+
+        if (index < 0 || index >= ambientAudioClips.Length || ambientAudioClips[index] == null)
         {
-            Debug.LogWarning($"No ambient audio clip assigned for {location} {index}");
+            Debug.LogWarning($"No ambient audio clip assigned for {location} ({index})");
             return;
         }
-        Debug.Log($"Playing audio for {location}: {ambientAudioClips[index].name} {index}");
+
+        // Already playing this location's clip: keep it going without restarting.
+        if (ambientAudioSource.clip == ambientAudioClips[index] && ambientAudioSource.isPlaying)
+            return;
+
+        Debug.Log($"Playing audio for {location}: {ambientAudioClips[index].name} ({index})");
         ambientAudioSource.Stop();
         ambientAudioSource.clip = ambientAudioClips[index];
         ambientAudioSource.Play();
+    }
+
+    // Plays a one-shot sound effect over the ambient audio.
+    // Call from an event choice, e.g. EventUI.Instance.PlaySpecial(0)
+    public void PlaySpecial(int index)
+    {
+        if (specialAudioSource == null || specialAudioClips == null) return;
+
+        if (index < 0 || index >= specialAudioClips.Length || specialAudioClips[index] == null)
+        {
+            Debug.LogWarning($"No special audio clip at index {index}");
+            return;
+        }
+
+        specialAudioSource.PlayOneShot(specialAudioClips[index]);
     }
 
     // ================= HUD =================
@@ -181,30 +228,84 @@ public class EventUI : MonoBehaviour
         var gs = GameState.Instance;
 
         if (timeText != null)
-            timeText.text = gs.GetTimeString();
+            timeText.text = $"{gs.DayName}  {gs.GetTimeString()}";
 
         if (statusText != null)
             statusText.text = $"Energy: {gs.energy}   Mood: {gs.mood}";
     }
 
-    // ================= SUMMARY =================
+    // ================= SUMMARIES =================
 
-    private void ShowSummary()
+    private void ShowDaySummary()
     {
         var gs = GameState.Instance;
+        gs.EndDay();
 
         var sb = new StringBuilder();
-        sb.AppendLine(gs.HasFlag("LateToWork") ? "<b>You were late to work.</b>" : "<b>You made it to work on time!</b>");
-        sb.AppendLine($"Energy: {gs.energy}   Mood: {gs.mood}");
-        sb.AppendLine();
 
-        foreach (string entry in gs.GetHistory())
-            sb.AppendLine(entry);
+        if (gs.IsLastDay)
+        {
+            BuildWeekSummary(sb);
+            if (summaryButtonText != null) summaryButtonText.text = "Play again";
+        }
+        else
+        {
+            sb.AppendLine($"<b>{gs.DayName} is over.</b>");
+            sb.AppendLine(gs.HasFlag("LateToWork") ? "You were late to work." : "You made it to work on time.");
+            sb.AppendLine($"Energy: {gs.energy}   Mood: {gs.mood}");
+            sb.AppendLine();
+
+            foreach (string entry in gs.GetHistoryForDay(gs.currentDay))
+                sb.AppendLine(entry);
+
+            if (summaryButtonText != null) summaryButtonText.text = "Next day";
+        }
 
         summaryText.text = sb.ToString();
 
         if (eventPanel != null) eventPanel.SetActive(false);
         summaryPanel.SetActive(true);
+
+        // Start scrolled to the top.
+        if (summaryScroll != null)
+        {
+            Canvas.ForceUpdateCanvases();
+            summaryScroll.verticalNormalizedPosition = 1f;
+        }
+
         UpdateHUD();
+    }
+
+    private void BuildWeekSummary(StringBuilder sb)
+    {
+        var gs = GameState.Instance;
+        int late = gs.GetCount("TimesLate");
+        int productive = gs.GetCount("ProductiveDays");
+        int friendship = gs.GetCount("NeighborFriendship");
+
+        sb.AppendLine("<b>The week is over.</b>");
+        sb.AppendLine();
+
+        foreach (string recap in gs.GetDayRecaps())
+            sb.AppendLine(recap);
+
+        sb.AppendLine();
+        sb.AppendLine($"Days late: {late}   Productive days: {productive}");
+        sb.AppendLine($"Final energy: {gs.energy}   Final mood: {gs.mood}");
+
+        if (friendship >= 2) sb.AppendLine("You and your neighbor are becoming friends.");
+        else if (friendship <= -2) sb.AppendLine("Your neighbor has stopped waving.");
+
+        sb.AppendLine();
+
+        // Ending
+        if (late >= 3)
+            sb.AppendLine("<b>Ending: On Thin Ice.</b> Your boss has put you on a final warning.");
+        else if (productive >= 4 && late <= 1)
+            sb.AppendLine("<b>Ending: Rising Star.</b> Your boss mentions a promotion.");
+        else if (gs.mood >= 8)
+            sb.AppendLine("<b>Ending: Good Vibes.</b> Work was fine, but you enjoyed your week.");
+        else
+            sb.AppendLine("<b>Ending: Survived.</b> Another week down.");
     }
 }
