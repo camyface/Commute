@@ -43,6 +43,7 @@ public class EventUI : MonoBehaviour
     private int stageIndex;
     private int eventIndex;
     private List<EventChoice> currentChoices = new List<EventChoice>();
+    private bool showingResult;   // true while the "what happened" screen is up
 
     void Start()
     {
@@ -53,10 +54,33 @@ public class EventUI : MonoBehaviour
 
     public void ChooseOption(int option)
     {
+        // On the result screen the only button is Continue.
+        if (showingResult)
+        {
+            showingResult = false;
+            ShowNextEvent();
+            return;
+        }
+
         if (option < 0 || option >= currentChoices.Count) return;
 
+        // Snapshot the state so we can show what the choice changed.
+        var gs = GameState.Instance;
+        int timeBefore = gs.timeMinutes;
+        int energyBefore = gs.energy;
+        int moodBefore = gs.mood;
+        int historyBefore = gs.GetHistory().Count;
+
         currentChoices[option].onChoose?.Invoke();
-        ShowNextEvent();
+
+        // Choices that don't change time or stats skip the result screen.
+        if (gs.timeMinutes == timeBefore && gs.energy == energyBefore && gs.mood == moodBefore)
+        {
+            ShowNextEvent();
+            return;
+        }
+
+        ShowResult(historyBefore, gs.timeMinutes - timeBefore, gs.energy - energyBefore, gs.mood - moodBefore);
     }
 
     public void RestartDay()
@@ -73,6 +97,7 @@ public class EventUI : MonoBehaviour
         day = DayEvents.BuildDay();
         stageIndex = 0;
         eventIndex = 0;
+        showingResult = false;
 
         summaryPanel.SetActive(false);
         if (eventPanel != null) eventPanel.SetActive(true);
@@ -130,6 +155,61 @@ public class EventUI : MonoBehaviour
         }
 
         UpdateHUD();
+    }
+
+    // ================= CHOICE RESULT =================
+
+    // Shows the history lines the choice added plus the time/stat changes, with one Continue button.
+    private void ShowResult(int historyStart, int minutes, int energy, int mood)
+    {
+        showingResult = true;
+
+        var sb = new StringBuilder();
+        IReadOnlyList<string> history = GameState.Instance.GetHistory();
+        for (int i = historyStart; i < history.Count; i++)
+        {
+            sb.AppendLine(StripTimestamp(history[i]) + ".");
+        }
+        if (sb.Length > 0) sb.AppendLine();
+        sb.Append($"<b>{FormatChanges(minutes, energy, mood)}</b>");
+
+        eventText.text = sb.ToString();
+
+        for (int i = 0; i < choiceButtons.Length; i++)
+        {
+            choiceButtons[i].gameObject.SetActive(i == 0);
+        }
+        choiceButtons[0].GetComponentInChildren<TMP_Text>().text = "Continue";
+
+        UpdateHUD();
+    }
+
+    // History entries look like "[7:45 AM] Took the bus"; drop the time part.
+    private static string StripTimestamp(string entry)
+    {
+        int end = entry.IndexOf("] ");
+        return end >= 0 ? entry.Substring(end + 2) : entry;
+    }
+
+    // e.g. "+1 hr 5 min  ·  -2 mood"
+    private static string FormatChanges(int minutes, int energy, int mood)
+    {
+        var parts = new List<string>();
+        if (minutes != 0) parts.Add(FormatMinutes(minutes));
+        if (energy != 0) parts.Add($"{energy:+0;-0} energy");
+        if (mood != 0) parts.Add($"{mood:+0;-0} mood");
+        return string.Join("  ·  ", parts);
+    }
+
+    private static string FormatMinutes(int minutes)
+    {
+        string sign = minutes > 0 ? "+" : "-";
+        int total = Mathf.Abs(minutes);
+        int hours = total / 60;
+        int mins = total % 60;
+
+        if (hours == 0) return $"{sign}{mins} min";
+        return mins == 0 ? $"{sign}{hours} hr" : $"{sign}{hours} hr {mins} min";
     }
 
     // ================= BACKGROUND =================

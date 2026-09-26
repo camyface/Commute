@@ -9,7 +9,8 @@ public enum Location
     CommuteToWork,
     OutsideWork,
     Work,
-    CommuteHome
+    CommuteHome,
+    CoffeeShop     // add new locations at the end; the scene stores these as numbers
 }
 
 // One button the player can press during an event.
