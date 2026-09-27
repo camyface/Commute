@@ -87,6 +87,7 @@ public class EventChoice
     public string label;
     public Action onChoose;          // what happens when picked (can be null)
     public Func<bool> condition;     // null = always available
+    public bool hidden;              // never shown as a button; used when a timer runs out
     public readonly List<DialogueLine> replies = new List<DialogueLine>();  // shown after picking
 
     public bool IsAvailable()
@@ -114,6 +115,12 @@ public class GameEvent
     public readonly List<EventChoice> choices = new List<EventChoice>();
     public CharacterId presentCharacter = CharacterId.None;
     public Expression presentExpression = Expression.Neutral;
+
+    public float timerSeconds;    // > 0 = the player must choose before time runs out
+    public bool impact;           // flash + shake when this event starts
+
+    // "Joe will remember that." notes, keyed by choice label. Shown after the choice.
+    private readonly Dictionary<string, Func<string>> rememberNotes = new Dictionary<string, Func<string>>();
 
     public string group;          // events sharing a group: one is picked at random
     public float weight = 1f;     // higher = more likely to be picked from its group
@@ -184,6 +191,49 @@ public class GameEvent
             if (!condition()) return false;
         }
         return true;
+    }
+
+    // ---------- Feel ----------
+
+    // Put the choices on a countdown. Pair with OnTimeout() to decide what happens if time runs out
+    // (otherwise the last visible choice is picked).
+    public GameEvent Timed(float seconds)
+    {
+        timerSeconds = seconds;
+        return this;
+    }
+
+    // What happens if the timer runs out. Works like a hidden Choice: .Reply() lines after it
+    // play when it triggers. Put it BEFORE the normal choices.
+    public GameEvent OnTimeout(string label, Action onTimeout)
+    {
+        choices.Add(new EventChoice { label = label, onChoose = onTimeout, hidden = true });
+        if (timerSeconds <= 0f) timerSeconds = 10f;
+        return this;
+    }
+
+    public EventChoice GetTimeoutChoice() => choices.Find(c => c.hidden);
+
+    // Flash the screen and shake when this event starts (raids, crashes, firings...).
+    public GameEvent Impact()
+    {
+        impact = true;
+        return this;
+    }
+
+    // After picking the choice with this label, show a note like "Joe will remember that."
+    // The note is built AFTER the choice runs, so it can depend on what happened ("" = no note).
+    public GameEvent Remember(string choiceLabel, string note) => Remember(choiceLabel, () => note);
+
+    public GameEvent Remember(string choiceLabel, Func<string> note)
+    {
+        rememberNotes[choiceLabel] = note;
+        return this;
+    }
+
+    public string GetRememberNote(EventChoice choice)
+    {
+        return choice != null && rememberNotes.TryGetValue(choice.label, out var note) ? note() : null;
     }
 
     // ---------- Background ----------
@@ -260,7 +310,7 @@ public class GameEvent
 
     public List<EventChoice> GetAvailableChoices()
     {
-        return choices.FindAll(c => c.IsAvailable());
+        return choices.FindAll(c => !c.hidden && c.IsAvailable());
     }
 }
 

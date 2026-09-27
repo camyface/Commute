@@ -83,13 +83,7 @@ public class EventUI : MonoBehaviour
     [Header("Sounds")]
     public AudioSource ambientAudioSource;
     public AudioSource specialAudioSource;
-    [Serializable]
-    public class AmbientAudioClip
-    {
-        public Backdrop backdrop;   // one per Backdrop enum value
-        public AudioClip clip;
-    }
-    public List<AmbientAudioClip> ambientAudioClips;
+    public AudioClip[] ambientAudioClips;   // one per Location, in enum order
 
     // Named sound effects. A clip whose id matches an event id (e.g. "Alarm", "PoliceRaid")
     // plays automatically when that event starts. Others can be played with PlaySpecialAudio("id").
@@ -105,6 +99,31 @@ public class EventUI : MonoBehaviour
     [Tooltip("Chance (0-1) that a random event from RadiantEvents.cs pops up at the start of each stage.")]
     [Range(0f, 1f)] public float radiantEventChance = 0.1f;
 
+    [Header("Feedback Popups")]
+    [Tooltip("Shows stat changes (+$60, Job -1) and notes like \"Joe will remember that.\" after each choice.")]
+    public TMP_Text feedbackText;
+    public float feedbackDuration = 2.5f;
+    public Color gainColor = new Color(0.42f, 0.8f, 0.47f, 1f);
+    public Color lossColor = new Color(1f, 0.42f, 0.42f, 1f);
+
+    [Header("Choice Timer")]
+    [Tooltip("An Image with Image Type = Filled (Horizontal). Only shown on timed choices.")]
+    public Image timerBar;
+    public Color timerCalmColor = new Color(1f, 0.85f, 0.4f, 1f);
+    public Color timerUrgentColor = new Color(1f, 0.3f, 0.3f, 1f);
+
+    [Header("Game Feel")]
+    [Tooltip("Letters per second for the typewriter effect. 0 = show text instantly.")]
+    public float charsPerSecond = 50f;
+    [Tooltip("Full-screen white Image with alpha 0 and Raycast Target off. Flashes on big moments.")]
+    public Image flashImage;
+    [Tooltip("What shakes on big moments. Defaults to the event panel.")]
+    public RectTransform shakeTarget;
+    [Tooltip("How much a portrait bounces when that character speaks.")]
+    public float portraitBounce = 0.06f;
+    [Tooltip("Clock color when you're about to be late for work.")]
+    public Color lateClockColor = new Color(1f, 0.35f, 0.35f, 1f);
+
     [Header("Summary Panel")]
     public GameObject summaryPanel;
     public TMP_Text summaryText;
@@ -119,6 +138,37 @@ public class EventUI : MonoBehaviour
     private bool radiantRolled;   // one radiant roll per stage
     private bool inEpilogue;      // playing the end-of-week character slides
 
+    private GameEvent currentEvent;
+
+    // Feel state
+    private bool typing;
+    private float typedChars;
+    private int totalChars;
+    private bool timerActive;
+    private float timerLeft;
+    private float feedbackTimer;
+    private float flashTimer;
+    private float shakeTimer;
+    private Vector2 shakeBasePos;
+    private Color timeTextBaseColor = Color.white;
+    private const float PunchTime = 0.25f;
+    private const float ImpactTime = 0.35f;
+    private float characterPunch, playerPunch;
+    private bool characterShake, playerShake;
+    private Vector3 characterBaseScale = Vector3.one, playerBaseScale = Vector3.one;
+    private Vector2 characterBasePos, playerBasePos;
+
+    // Stats before a choice, to show what changed.
+    private struct StatSnapshot
+    {
+        public int energy, mood, money, standing;
+        public static StatSnapshot Take()
+        {
+            var gs = GameState.Instance;
+            return new StatSnapshot { energy = gs.energy, mood = gs.mood, money = gs.money, standing = gs.standing };
+        }
+    }
+
     // Dialogue playback
     private readonly Queue<DialogueLine> lineQueue = new Queue<DialogueLine>();
     private List<EventChoice> choicesAfterLines;   // null = go to next event when lines finish
@@ -130,6 +180,31 @@ public class EventUI : MonoBehaviour
     void Awake()
     {
         Instance = this;
+
+        // Remember where things sit, so bounces and shakes always return home.
+        // (A flipped portrait keeps its negative X scale.)
+        if (characterImage != null)
+        {
+            characterBaseScale = characterImage.rectTransform.localScale;
+            characterBasePos = characterImage.rectTransform.anchoredPosition;
+        }
+        if (playerImage != null)
+        {
+            playerBaseScale = playerImage.rectTransform.localScale;
+            playerBasePos = playerImage.rectTransform.anchoredPosition;
+        }
+        if (shakeTarget == null && eventPanel != null) shakeTarget = eventPanel.GetComponent<RectTransform>();
+        if (shakeTarget != null) shakeBasePos = shakeTarget.anchoredPosition;
+        if (timeText != null) timeTextBaseColor = timeText.color;
+
+        if (feedbackText != null) feedbackText.text = "";
+        if (timerBar != null) timerBar.gameObject.SetActive(false);
+        if (flashImage != null)
+        {
+            Color c = flashImage.color;
+            c.a = 0f;
+            flashImage.color = c;
+        }
     }
 
     void Start()
@@ -137,22 +212,91 @@ public class EventUI : MonoBehaviour
         StartWeek();
     }
 
-    // Smoothly fades portraits toward lit / shadowed.
     void Update()
     {
-        float t = Time.deltaTime * highlightFadeSpeed;
+        float dt = Time.deltaTime;
 
+        // Smoothly fade portraits toward lit / shadowed.
+        float t = dt * highlightFadeSpeed;
         if (characterImage != null)
             characterImage.color = Color.Lerp(characterImage.color, characterTargetColor, t);
-
         if (playerImage != null)
             playerImage.color = Color.Lerp(playerImage.color, playerTargetColor, t);
+
+        // Typewriter.
+        if (typing)
+        {
+            typedChars += charsPerSecond * dt;
+            int shown = Mathf.Min((int)typedChars, totalChars);
+            eventText.maxVisibleCharacters = shown;
+            if (shown >= totalChars) FinishTyping();
+        }
+
+        // Choice timer (starts once the text has finished typing).
+        if (timerActive && !typing)
+        {
+            timerLeft -= dt;
+            if (timerBar != null && currentEvent != null)
+            {
+                float fraction = Mathf.Clamp01(timerLeft / currentEvent.timerSeconds);
+                timerBar.fillAmount = fraction;
+                timerBar.color = Color.Lerp(timerUrgentColor, timerCalmColor, fraction);
+            }
+            if (timerLeft <= 0f)
+            {
+                StopTimer();
+                OnTimerExpired();
+            }
+        }
+
+        // Feedback popup fades out over its last half second.
+        if (feedbackText != null && feedbackTimer > 0f)
+        {
+            feedbackTimer -= dt;
+            feedbackText.alpha = Mathf.Clamp01(feedbackTimer / 0.5f);
+            if (feedbackTimer <= 0f) feedbackText.text = "";
+        }
+
+        // Impact flash + shake.
+        if (flashImage != null && flashTimer > 0f)
+        {
+            flashTimer -= dt;
+            Color c = flashImage.color;
+            c.a = Mathf.Clamp01(flashTimer / ImpactTime) * 0.8f;
+            flashImage.color = c;
+        }
+        if (shakeTarget != null && shakeTimer > 0f)
+        {
+            shakeTimer -= dt;
+            shakeTarget.anchoredPosition = shakeTimer > 0f
+                ? shakeBasePos + UnityEngine.Random.insideUnitCircle * 14f * (shakeTimer / ImpactTime)
+                : shakeBasePos;
+        }
+
+        // Speaking portraits bounce (and shake when angry or shocked).
+        AnimatePortrait(characterImage, ref characterPunch, characterBaseScale, characterBasePos, characterShake, dt);
+        AnimatePortrait(playerImage, ref playerPunch, playerBaseScale, playerBasePos, playerShake, dt);
+
+        // Clock pulses red when you're about to be late for work.
+        if (timeText != null)
+        {
+            timeText.color = IsRunningLate()
+                ? Color.Lerp(timeTextBaseColor, lateClockColor, 0.5f + 0.5f * Mathf.Sin(Time.time * 6f))
+                : timeTextBaseColor;
+        }
     }
 
     // ================= BUTTONS =================
 
     public void ChooseOption(int option)
     {
+        // Text still typing: the first click just finishes it.
+        if (typing)
+        {
+            FinishTyping();
+            return;
+        }
+
         // Mid-conversation: the only button is "Continue".
         if (waitingForContinue)
         {
@@ -163,14 +307,32 @@ public class EventUI : MonoBehaviour
 
         if (option < 0 || option >= currentChoices.Count) return;
 
-        EventChoice choice = currentChoices[option];
+        ResolveChoice(currentChoices[option], timedOut: false);
+    }
+
+    private void ResolveChoice(EventChoice choice, bool timedOut)
+    {
+        StopTimer();
+
+        StatSnapshot before = StatSnapshot.Take();
         choice.onChoose?.Invoke();
+        ShowFeedback(before, currentEvent != null ? currentEvent.GetRememberNote(choice) : null, timedOut);
 
         // Let the character react before moving on.
         if (choice.replies.Count > 0)
             PlayLines(choice.replies, null);
         else
             ShowNextEvent();
+    }
+
+    // Time ran out: use the event's OnTimeout choice, or the last visible choice.
+    private void OnTimerExpired()
+    {
+        if (currentEvent == null) return;
+
+        EventChoice choice = currentEvent.GetTimeoutChoice();
+        if (choice == null && currentChoices.Count > 0) choice = currentChoices[currentChoices.Count - 1];
+        if (choice != null) ResolveChoice(choice, timedOut: true);
     }
 
     // "Next day" after days 1-4, "Play again" after day 5.
@@ -320,8 +482,12 @@ public class EventUI : MonoBehaviour
         gs.currentLocation = stage.location;
         if (ev.once) gs.AddPermanentFlag(ev.SeenFlag);
 
+        currentEvent = ev;
+        StopTimer();
+        if (ev.impact) TriggerImpact();
+
         SetBackground(ev.GetBackdrop() ?? stage.backdrop);
-        SetAudio(ev.GetBackdrop() ?? stage.backdrop);
+        SetAudio(stage.location);
         PlaySpecialAudio(ev.id, warnIfMissing: false);   // plays only if a clip has this event's id
 
         // Start with whoever is "present", or nobody.
@@ -409,7 +575,21 @@ public class EventUI : MonoBehaviour
                 break;
         }
 
+        // Whoever speaks bounces; angry or shocked lines shake too.
+        bool intense = line.Expression == Expression.Annoyed || line.Expression == Expression.Surprised;
+        if (line.speaker == CharacterId.Player)
+        {
+            playerPunch = PunchTime;
+            playerShake = intense;
+        }
+        else if (line.speaker != CharacterId.None)
+        {
+            characterPunch = PunchTime;
+            characterShake = intense;
+        }
+
         SetSpeaker(line.speaker);
+        StartTyping();
         UpdateHUD();
     }
 
@@ -425,6 +605,122 @@ public class EventUI : MonoBehaviour
         choicesAfterLines = null;
         currentChoices = choices;
         SetButtons(choices.ConvertAll(c => c.label));
+
+        if (currentEvent != null && currentEvent.timerSeconds > 0f)
+            StartTimer(currentEvent.timerSeconds);
+    }
+
+    // ================= GAME FEEL =================
+
+    private void StartTyping()
+    {
+        if (charsPerSecond <= 0f)
+        {
+            FinishTyping();
+            return;
+        }
+
+        eventText.ForceMeshUpdate();
+        totalChars = eventText.textInfo.characterCount;
+        typedChars = 0f;
+        eventText.maxVisibleCharacters = 0;
+        typing = totalChars > 0;
+        if (!typing) FinishTyping();
+    }
+
+    private void FinishTyping()
+    {
+        typing = false;
+        eventText.maxVisibleCharacters = int.MaxValue;
+    }
+
+    private void StartTimer(float seconds)
+    {
+        timerActive = true;
+        timerLeft = seconds;
+        if (timerBar != null)
+        {
+            timerBar.gameObject.SetActive(true);
+            timerBar.fillAmount = 1f;
+            timerBar.color = timerCalmColor;
+        }
+    }
+
+    private void StopTimer()
+    {
+        timerActive = false;
+        if (timerBar != null) timerBar.gameObject.SetActive(false);
+    }
+
+    private void TriggerImpact()
+    {
+        flashTimer = ImpactTime;
+        shakeTimer = ImpactTime;
+    }
+
+    private void AnimatePortrait(Image image, ref float punch, Vector3 baseScale, Vector2 basePos, bool shake, float dt)
+    {
+        if (image == null || punch <= 0f) return;
+
+        punch -= dt;
+        RectTransform rt = image.rectTransform;
+
+        if (punch <= 0f)
+        {
+            rt.localScale = baseScale;
+            rt.anchoredPosition = basePos;
+            return;
+        }
+
+        float progress = 1f - punch / PunchTime;
+        float bounce = 1f + Mathf.Sin(progress * Mathf.PI) * portraitBounce;
+        rt.localScale = new Vector3(baseScale.x * bounce, baseScale.y * bounce, baseScale.z);
+        rt.anchoredPosition = shake
+            ? basePos + new Vector2(Mathf.Sin(Time.time * 90f) * 7f * (punch / PunchTime), 0f)
+            : basePos;
+    }
+
+    // Morning, not at work yet, and within 20 minutes of start time (or past it).
+    private bool IsRunningLate()
+    {
+        var gs = GameState.Instance;
+        if (gs == null || (summaryPanel != null && summaryPanel.activeSelf)) return false;
+        return (int)gs.currentLocation <= (int)Location.CommuteToWork
+            && gs.timeMinutes >= gs.workStartMinutes - 20
+            && gs.timeMinutes < GameState.TimeOf(12);
+    }
+
+    // "+$60   Job -1" in green/red, plus "Joe will remember that." in italics.
+    private void ShowFeedback(StatSnapshot before, string note, bool timedOut)
+    {
+        if (feedbackText == null) return;
+
+        var gs = GameState.Instance;
+        var parts = new List<string>();
+        AddDelta(parts, gs.money - before.money, "$", isMoney: true);
+        AddDelta(parts, gs.standing - before.standing, "Job");
+        AddDelta(parts, gs.energy - before.energy, "Energy");
+        AddDelta(parts, gs.mood - before.mood, "Mood");
+
+        var sb = new StringBuilder();
+        if (timedOut) sb.AppendLine("<i>You hesitated...</i>");
+        if (parts.Count > 0) sb.AppendLine(string.Join("    ", parts));
+        if (!string.IsNullOrEmpty(note)) sb.AppendLine($"<i>{note}</i>");
+        if (sb.Length == 0) return;
+
+        feedbackText.text = sb.ToString().TrimEnd();
+        feedbackText.alpha = 1f;
+        feedbackTimer = feedbackDuration;
+    }
+
+    private void AddDelta(List<string> parts, int delta, string label, bool isMoney = false)
+    {
+        if (delta == 0) return;
+
+        string hex = ColorUtility.ToHtmlStringRGB(delta > 0 ? gainColor : lossColor);
+        string sign = delta > 0 ? "+" : "-";
+        string body = isMoney ? $"{sign}${Math.Abs(delta)}" : $"{label} {sign}{Math.Abs(delta)}";
+        parts.Add($"<color=#{hex}>{body}</color>");
     }
 
     private void SetButtons(List<string> labels)
@@ -580,26 +876,25 @@ public class EventUI : MonoBehaviour
 
     // Plays the ambient loop for a location. Clips are matched by enum order:
     // 0 Home, 1 OutsideHome, 2 CommuteToWork, 3 OutsideWork, 4 Work, 5 CommuteHome
-    private void SetAudio(Backdrop backdrop)
+    private void SetAudio(Location location)
     {
-        if (ambientAudioSource == null || ambientAudioClips == null || ambientAudioClips.Count == 0) return;
+        if (ambientAudioSource == null || ambientAudioClips == null || ambientAudioClips.Length == 0) return;
 
-        int index = (int)backdrop;
+        int index = (int)location;
 
-        var audioClip = ambientAudioClips.Find(c => c.backdrop == backdrop);
-        if (audioClip == null || audioClip.clip == null)
+        if (index < 0 || index >= ambientAudioClips.Length || ambientAudioClips[index] == null)
         {
-            Debug.LogWarning($"No ambient audio clip assigned for {backdrop}");
+            Debug.LogWarning($"No ambient audio clip assigned for {location} ({index})");
             return;
         }
 
         // Already playing this location's clip: keep it going without restarting.
-        if (ambientAudioSource.clip == audioClip.clip && ambientAudioSource.isPlaying)
+        if (ambientAudioSource.clip == ambientAudioClips[index] && ambientAudioSource.isPlaying)
             return;
 
-        Debug.Log($"Playing audio for {backdrop}: {audioClip.clip.name}");
+        Debug.Log($"Playing audio for {location}: {ambientAudioClips[index].name} ({index})");
         ambientAudioSource.Stop();
-        ambientAudioSource.clip = audioClip.clip;
+        ambientAudioSource.clip = ambientAudioClips[index];
         ambientAudioSource.Play();
     }
 
@@ -638,6 +933,9 @@ public class EventUI : MonoBehaviour
     {
         var gs = GameState.Instance;
         if (!inEpilogue) gs.EndDay();   // the epilogue already did this on the last day
+
+        FinishTyping();
+        StopTimer();
 
         var sb = new StringBuilder();
 
@@ -742,5 +1040,36 @@ public class EventUI : MonoBehaviour
         // ---------- Ending ----------
         var ending = DayEvents.GetEnding();
         sb.AppendLine($"<b>Ending: {ending.title}.</b> {ending.text}");
+
+        // ---------- Endings gallery (saved between sessions) ----------
+        string key = "Ending_" + ending.title;
+        bool isNew = PlayerPrefs.GetInt(key, 0) == 0;
+        PlayerPrefs.SetInt(key, 1);
+        PlayerPrefs.Save();
+
+        int found = 0;
+        var names = new List<string>();
+        foreach (string title in DayEvents.AllEndingTitles)
+        {
+            bool unlocked = PlayerPrefs.GetInt("Ending_" + title, 0) == 1;
+            if (unlocked) found++;
+            if (!unlocked) names.Add("???");
+            else if (title == ending.title) names.Add($"<b>{title}</b>" + (isNew ? " <color=#FFD966>(new!)</color>" : ""));
+            else names.Add(title);
+        }
+
+        sb.AppendLine();
+        sb.AppendLine($"<b>Endings found: {found} / {DayEvents.AllEndingTitles.Length}</b>");
+        sb.AppendLine(string.Join("  ·  ", names));
+    }
+
+    // Right-click the EventUI component in the Inspector to wipe the gallery while testing.
+    [ContextMenu("Reset Endings Gallery")]
+    private void ResetEndingsGallery()
+    {
+        foreach (string title in DayEvents.AllEndingTitles)
+            PlayerPrefs.DeleteKey("Ending_" + title);
+        PlayerPrefs.Save();
+        Debug.Log("Endings gallery reset.");
     }
 }

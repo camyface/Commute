@@ -223,6 +223,7 @@ public static class DayEvents
         // Standing hit 0? Your boss fires you and the week ends. Placed at a few points in the workday.
         GameEvent FiredCheck(string id) => new GameEvent(id)
             .When(() => gs.standing <= 0 && !HasP("LaidOff"))
+            .Impact()
             .Scene(Backdrop.MeetingRoom)
             .With(Boss, Annoyed)
             .Narrate("Your boss calls you into the meeting room. Someone from HR is already sitting there.")
@@ -340,6 +341,7 @@ public static class DayEvents
                     .With(Dog, Sad)
                     .Narrate("Your dog is limping and won't put weight on his back paw. The emergency vet quotes $40.")
                     .Say(Dog, "*whimpers*", Sad)
+                    .Remember("It'll heal on its own", "Your dog won't be at full strength for a while.")
                     .Choice("Take him to the vet ($40)", () =>
                     {
                         Spend(40);
@@ -419,6 +421,8 @@ public static class DayEvents
                             int f = Count("NeighborFriendship");
                             return f >= 1 ? Happy : f <= -1 ? Sad : Neutral;
                         })
+                    .Remember("Stop and chat", "Your neighbor will remember that.")
+                    .Remember("Wave and keep walking", "Your neighbor noticed.")
                     .Choice("Stop and chat", () =>
                     {
                         gs.AddHistory("Chatted with the neighbor");
@@ -456,6 +460,9 @@ public static class DayEvents
                         ? "The scruffy dog is back, tail already wagging when it sees you."
                         : "A scruffy dog with no collar starts following you down the sidewalk.")
                     .Say(Dog, V("StrayDog", "*whines hopefully*", "*sits down right in front of you and offers a paw*", "*sniffs your shoes very seriously*", "*rolls onto its back, just in case*", "*tilts its head at you*"), Sad)
+                    .Remember("Scratch behind its ears", "The dog will remember that.")
+                    .Remember("Give it your breakfast bar", "The dog will remember that.")
+                    .Remember("Shoo it away", "The dog will remember that.")
                     .Choice("Scratch behind its ears", () =>
                     {
                         gs.AddHistory("Petted the stray dog");
@@ -486,6 +493,9 @@ public static class DayEvents
                     .With(Petitioner)
                     .Narrate("A woman with a clipboard steps into your path.")
                     .Say(Petitioner, "Morning! The city wants to cut the Route 9 morning bus starting Thursday. We need signatures to stop it. Got a second?")
+                    .Remember("Sign it", "She'll remember your name.")
+                    .Remember("Sign and donate $10", "She'll remember your name.")
+                    .Remember("Not today", "She'll remember that.")
                     .Choice("Sign it", () =>
                     {
                         gs.AddPermanentFlag("MetPetitioner");
@@ -538,6 +548,8 @@ public static class DayEvents
                     .Once()
                     .When(() => day <= 3)
                     .Narrate("There's a fat leather wallet lying in the gutter. Inside: $60 in cash and an ID with an address three doors down from yours.")
+                    .Remember("Pocket the cash (+$60)", () => HasP("SeenKeepingWallet") ? "Someone saw you." : "Nobody saw. Probably.")
+                    .Remember("Return it (you'll be late)", "Your neighbor will remember that.")
                     .Choice("Pocket the cash (+$60)", () =>
                     {
                         gs.ChangeMoney(60);
@@ -678,6 +690,9 @@ public static class DayEvents
                             "Excuse me. I hate to ask. Could you spare a few bucks?",
                             "Cold night last night. Just need enough for breakfast.",
                             "I'm not gonna lie to you. I'm hungry. Can you help?"), Sad)
+                    .Remember("Give him $5", "Joe will remember that.")
+                    .Remember("Give him your umbrella", "Joe will remember that.")
+                    .Remember("Look away", "He'll remember that.")
                     .Choice("Give him $5", () =>
                     {
                         Spend(5);
@@ -830,6 +845,7 @@ public static class DayEvents
                     .Scene(Backdrop.CarDay)
                     .When(() => Has("DroveToWork"))
                     .Narrate("The car ahead slams on its brakes. CRUNCH. A small dent in their bumper, a bigger one in yours.")
+                    .Impact()
                     .Choice("Exchange insurance info", () =>
                     {
                         gs.AddTime(25);
@@ -929,6 +945,9 @@ public static class DayEvents
                     .Say(Thug, () => HasP("ThugAngry")
                         ? "You dumped my package. That was expensive. Now it's YOUR expense."
                         : "Wallet. Phone. Don't make this hard.", Annoyed)
+                    .Timed(8f)
+                    .OnTimeout("Freeze", () => GetMugged())
+                        .Reply(None, "You freeze. He takes everything and walks away whistling.")
                     .Choice("Hand them over", () => GetMugged())
                         .Reply(Thug, "Smart.", Happy)
                         .Reply(None, "He disappears around the corner. No wallet, no phone, no alarm tomorrow.")
@@ -1152,6 +1171,8 @@ public static class DayEvents
                     .With(Coworker, Sad)
                     .Narrate("Your coworker rolls their chair over to your desk.")
                     .Say(Coworker, "Hey... do you have a minute? My spreadsheet just ate itself and it's due at noon.", Sad)
+                    .Remember("Help them", "Your coworker will remember that.")
+                    .Remember("Sorry, I'm swamped", "Your coworker will remember that.")
                     .Choice("Help them", () =>
                     {
                         gs.AddHistory("Helped a coworker fix their spreadsheet (your own work slipped, job standing -1)");
@@ -1206,6 +1227,7 @@ public static class DayEvents
                 new GameEvent("ExpenseReport", "Expense reports are due. Nobody checks the taxi receipts too closely... usually.")
                     .Group("WorkMorning")
                     .Once()
+                    .Remember("Pad the report (+$40)", () => HasP("CaughtPadding") ? "Your boss will remember that." : "")
                     .Choice("Pad the report (+$40)", () =>
                     {
                         if (Roll(0.25f))
@@ -1294,6 +1316,7 @@ public static class DayEvents
                     .With(Boss)
                     .Narrate("The Henderson clients file into the meeting room. Every eye turns to you.")
                     .Say(Boss, "Whenever you're ready.")
+                    .Impact()
                     .Choice("Present from your notes", () =>
                     {
                         bool win = gs.energy >= 3 || Roll(0.5f);
@@ -1345,6 +1368,8 @@ public static class DayEvents
                     .Once()
                     .With(Coworker, Happy)
                     .Say(Coworker, "Cake in the break room! It's my birthday, don't make me eat it alone.", Happy)
+                    .Remember("Have a slice", "Your coworker will remember that.")
+                    .Remember("Keep working", "Your coworker noticed.")
                     .Choice("Have a slice", () =>
                     {
                         gs.AddHistory("Had birthday cake with a coworker");
@@ -1389,6 +1414,8 @@ public static class DayEvents
                     .With(Boss, Happy)
                     .Narrate("In the afternoon meeting, your boss holds up a proposal. It's your coworker's idea, but your name is on the shared file.")
                     .Say(Boss, "Whoever came up with this: brilliant. This is exactly the thinking I want to see. Was this you?", Happy)
+                    .Remember("Take the credit", () => Has("CreditDiscovered") ? "Your coworker noticed." : "Nobody noticed... this time.")
+                    .Remember("Credit your coworker", "Your coworker will remember that.")
                     .Choice("Take the credit", () =>
                     {
                         gs.AddPermanentFlag("TookCredit");
@@ -1481,6 +1508,30 @@ public static class DayEvents
                         ? "*glances at you* I've got rent due next week. I really, really need this."
                         : "*stares at the table* I really need this job.", Sad)
 
+                    .Remember("Point out their mistakes", "Your coworker will never forget this.")
+                    .Remember("Take the fall for them", "Your coworker will never forget this.")
+                    .Remember("Fight for both of you", "Your coworker saw you fight for them.")
+                    .Timed(12f)
+                    .OnTimeout("Freeze", () =>
+                    {
+                        if (gs.standing >= 5 && Roll(0.5f))
+                        {
+                            gs.AddPermanentFlag("CoworkerLaidOff");
+                            gs.ChangeMood(-1);
+                            gs.AddHistory("Froze when it mattered. Your coworker was let go.");
+                        }
+                        else
+                        {
+                            gs.AddPermanentFlag("LaidOff");
+                            gs.ChangeMood(-3);
+                            gs.AddHistory("Froze when it mattered. You were let go.");
+                        }
+                    })
+                        .Reply(None, "You open your mouth. Nothing comes out.")
+                        .Reply(Boss, () => HasP("LaidOff")
+                            ? "...I'll take that as your answer. I'm sorry."
+                            : "Nothing? Alright. *turns to your coworker* I'm sorry.", Sad)
+                    .Impact()
                     .Choice("Point out their mistakes", () =>
                     {
                         gs.AddPermanentFlag("BetrayedCoworker");
@@ -1700,6 +1751,11 @@ public static class DayEvents
                         ? "Hey, I remember you. No hard feelings, yeah? Let me make it up to you."
                         : (gs.money < 20 ? "You look like someone who's running low on cash." : "You look like someone who could use some easy money."))
                     .Say(Thug, "Drop a package at the old warehouse tonight. A hundred and fifty, cash. No questions.")
+                    .Remember("Take the job", "You're in business with him now.")
+                    .Remember("Report him to the police", "He'll find out who talked.")
+                    .Timed(10f)
+                    .OnTimeout("Stay silent", () => gs.AddHistory("Said nothing to the man in the leather jacket"))
+                        .Reply(Thug, "Cat got your tongue? Your loss.", Annoyed)
                     .Choice("Take the job", () =>
                     {
                         gs.AddFlag("AcceptedThugJob");
@@ -1728,6 +1784,8 @@ public static class DayEvents
                         "Long day? Yeah. Me too, in a way.",
                         "You work in there? Must be nice. Warm, anyway.",
                         "Saw a guy drop a whole sandwich today. Didn't even look back. Best lunch I've had all week."), Sad)
+                    .Remember("Give him $10", "Joe will remember that.")
+                    .Remember("Tell him about the shelter on 5th", "Joe will remember that.")
                     .Choice("Give him $10", () =>
                     {
                         Spend(10);
@@ -1756,6 +1814,8 @@ public static class DayEvents
                     .With(Vagrant, Sad)
                     .Narrate("Joe is waiting outside your office. He looks like he's rehearsed this.")
                     .Say(Vagrant, "The shelter on 5th has one bed left. They need a $30 deposit by tonight. I wouldn't ask if... I know it's a lot.", Sad)
+                    .Remember("Pay the deposit ($30)", "Joe will never forget this.")
+                    .Remember("I can't afford it", "Joe will remember that.")
                     .Choice("Pay the deposit ($30)", () =>
                     {
                         Spend(30);
@@ -1867,6 +1927,7 @@ public static class DayEvents
                     .With(Vagrant, Surprised)
                     .Narrate("Joe catches your sleeve at the corner.")
                     .Say(Vagrant, "Whoa, whoa. Wherever you're taking that box... don't. Cops have been watching that warehouse all week.", Surprised)
+                    .Remember("Dump the package and go home", "He won't forget that you crossed him.")
                     .Choice("Dump the package and go home", () =>
                     {
                         gs.RemoveFlag("AcceptedThugJob");
@@ -1906,6 +1967,14 @@ public static class DayEvents
                     .With(Thug, Surprised)
                     .Narrate("Headlights flood the loading dock. \"POLICE! NOBODY MOVE!\"")
                     .Say(Thug, "You brought COPS?!", Surprised)
+                    .Timed(6f)
+                    .Impact()
+                    .OnTimeout("Freeze", () =>
+                    {
+                        gs.AddFlag("Caught");
+                        gs.ChangeMoney(-150);   // the cash is evidence
+                    })
+                        .Reply(None, "You hesitate one second too long. Flashlights. Handcuffs.")
                     .Choice("Run", () =>
                     {
                         if (Roll(0.4f))
@@ -1935,6 +2004,7 @@ public static class DayEvents
                     .Scene(Backdrop.JailCell)
                     .Narrate("They take the $150 as evidence. You spend the night in a holding cell that smells like old coffee and regret.")
                     .Narrate(() => $"A guard raps on the bars. \"Bail's $50. Or you can wait for the morning.\" You have ${gs.money}.")
+                    .Impact()
                     .Choice("Pay bail ($50)", () =>
                     {
                         Spend(50);
@@ -2077,6 +2147,14 @@ public static class DayEvents
                         : "You're half a block from home when a shape peels away from the shadows and blocks the sidewalk.")
                     .Narrate(() => ThugIntro())
                     .Say(Thug, () => ThugDemand(), Annoyed)
+                    .Timed(8f)
+                    .Impact()
+                    .OnTimeout("Freeze", () =>
+                    {
+                        GetMugged();
+                        gs.AddPermanentFlag("ShowdownLost");
+                    })
+                        .Reply(None, "You freeze. He doesn't.")
                     .Choice("Stand your ground", () =>
                     {
                         gs.AddFlag("Standoff");
@@ -2183,6 +2261,7 @@ public static class DayEvents
                         if (Allies() <= 2) return "This isn't over.";
                         return "...Alright! Alright! I'm going!";
                     }, () => Allies() == 0 ? Happy : Allies() <= 2 ? Annoyed : Surprised)
+                    .Impact()
                     .Choice("...", () =>
                     {
                         if (Allies() == 0)
@@ -2233,6 +2312,8 @@ public static class DayEvents
                     .With(Dog, Happy)
                     .Narrate("The scruffy dog from this morning is sitting on your doorstep like it lives here.")
                     .Say(Dog, "*thump thump thump* goes its tail.", Happy)
+                    .Remember("Adopt it ($20 for supplies)", "He's yours now. He'll remember that.")
+                    .Remember("Adopt it anyway", "He's yours now. He'll remember that.")
                     .Choice("Adopt it ($20 for supplies)", () =>
                     {
                         Spend(20);
@@ -2266,6 +2347,8 @@ public static class DayEvents
                         ? "Mrs. Alvarez across the street saw you pick up my wallet. My RENT money. I trusted you."
                         : "I lost my wallet this week. Rent money. I don't know what I'm going to do.",
                         () => HasP("SeenKeepingWallet") ? Annoyed : Sad)
+                    .Remember("Deny it", "Your neighbor will never trust you again.")
+                    .Remember("Confess and pay it back ($60)", "Your neighbor will remember that.")
                     .Choice("Confess and pay it back ($60)", () =>
                     {
                         Spend(60);
@@ -2379,6 +2462,7 @@ public static class DayEvents
                         "*sits perfectly still, doing his very best 'good boy' face*",
                         "*nudges the empty bowl across the kitchen floor toward you*",
                         "*has clearly been waiting by the door. Now he's waiting by the bowl.*"), Sad)
+                    .Remember("Forget it", "Your dog will remember that.")
                     .Choice("Feed it ($5)", () =>
                     {
                         Spend(5);
@@ -2442,6 +2526,14 @@ public static class DayEvents
     // =====================================================================
     // ENDING (shared by the epilogue and the week summary)
     // =====================================================================
+    // Every ending the player can find (used by the endings gallery). Keep in sync with GetEnding().
+    public static readonly string[] AllEndingTitles =
+    {
+        "Neighborhood Hero", "Rising Star", "Good Vibes", "The Fall Guy", "Survived",
+        "Top of the Ladder", "Looking Out for Number One", "On Thin Ice", "Flat Broke",
+        "Pink Slip", "Jailbird",
+    };
+
     public static (string title, string text, Expression mood) GetEnding()
     {
         var gs = GameState.Instance;
