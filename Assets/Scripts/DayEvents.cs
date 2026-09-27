@@ -2517,7 +2517,7 @@ public static class DayEvents
                 // Mon-Thu: end every day on a hook.
                 new GameEvent("Cliffhanger", () => Cliffhanger())
                     .When(() => day < gs.totalDays && !gs.weekOver)
-                    .Choice("...")
+                    .Choice("Continue...")
             )
         };
 
