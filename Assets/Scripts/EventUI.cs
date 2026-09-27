@@ -1,16 +1,15 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
 using System.Text;
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
 
-// Pairs a location with its background image (filled in from the Inspector).
+// Pairs a backdrop with its background image (filled in from the Inspector).
 [Serializable]
-public class LocationBackground
+public class BackdropImage
 {
-    public Location location;
+    public Backdrop backdrop;
     public Sprite sprite;
 }
 
@@ -47,6 +46,7 @@ public class CharacterData
 // Button wiring (do this once, in the Inspector):
 //   ChoiceButton1  -> EventUI.ChooseOption(0)
 //   ChoiceButton2  -> EventUI.ChooseOption(1)
+//   ChoiceButton3  -> EventUI.ChooseOption(2)
 //   SummaryButton  -> EventUI.SummaryButtonPressed()
 public class EventUI : MonoBehaviour
 {
@@ -57,11 +57,11 @@ public class EventUI : MonoBehaviour
 
     [Header("HUD")]
     public TMP_Text timeText;      // day + clock in the top-right corner
-    public TMP_Text statusText;    // optional: energy / mood
+    public TMP_Text statusText;    // optional: energy / mood / money / job
 
     [Header("Backgrounds")]
     public Image backgroundImage;
-    public LocationBackground[] backgrounds;
+    public BackdropImage[] backgrounds;   // one per Backdrop
 
     [Header("Characters")]
     public Image characterImage;       // the other character (right side)
@@ -84,6 +84,9 @@ public class EventUI : MonoBehaviour
     public AudioSource ambientAudioSource;
     public AudioSource specialAudioSource;
     public AudioClip[] ambientAudioClips;   // one per Location, in enum order
+
+    // Named sound effects. A clip whose id matches an event id (e.g. "Alarm", "PoliceRaid")
+    // plays automatically when that event starts. Others can be played with PlaySpecialAudio("id").
     [Serializable]
     public class SpecialAudioClip
     {
@@ -91,6 +94,10 @@ public class EventUI : MonoBehaviour
         public AudioClip clip;
     }
     public List<SpecialAudioClip> specialAudioClips;
+
+    [Header("Radiant Events")]
+    [Tooltip("Chance (0-1) that a random event from RadiantEvents.cs pops up at the start of each stage.")]
+    [Range(0f, 1f)] public float radiantEventChance = 0.1f;
 
     [Header("Summary Panel")]
     public GameObject summaryPanel;
@@ -102,7 +109,8 @@ public class EventUI : MonoBehaviour
     private int stageIndex;
     private int eventIndex;
     private List<EventChoice> currentChoices = new List<EventChoice>();
-    private System.Random random = new System.Random();
+    private readonly HashSet<string> usedGroups = new HashSet<string>();
+    private bool radiantRolled;   // one radiant roll per stage
 
     // Dialogue playback
     private readonly Queue<DialogueLine> lineQueue = new Queue<DialogueLine>();
@@ -185,6 +193,8 @@ public class EventUI : MonoBehaviour
         day = DayEvents.BuildDay();
         stageIndex = 0;
         eventIndex = 0;
+        usedGroups.Clear();
+        radiantRolled = false;
 
         summaryPanel.SetActive(false);
         if (eventPanel != null) eventPanel.SetActive(true);
@@ -193,50 +203,105 @@ public class EventUI : MonoBehaviour
     }
 
     // Finds the next event whose conditions pass, moving through locations in order.
+    // Grouped events: the first time a group is reached, one eligible event is picked at random.
     private void ShowNextEvent()
     {
+        var gs = GameState.Instance;
+
         while (stageIndex < day.Count)
         {
+            // Fired, arrested, etc: skip whatever is left of the day.
+            if (gs.weekOver || gs.HasFlag(GameState.EndDayFlag)) break;
+
             DayStage stage = day[stageIndex];
 
-            while (eventIndex < stage.events.Count)
+            // Arriving at a new stage: small chance of a radiant event first.
+            if (!radiantRolled)
             {
-                GameEvent ev;
-                if (GetRadiantEventChance() && RadiantEvents.gameEvents.ContainsKey(stage.location))
+                radiantRolled = true;
+                GameEvent radiant = PickRadiantEvent(stage.location);
+                if (radiant != null)
                 {
-                    ev = RadiantEvents.gameEvents.TryGetValue(stage.location, out GameEvent @event) ? @event : null;
-                }
-                else
-                {
-                    ev = stage.events[eventIndex];
-                    eventIndex++;
-                }
-
-                if (ev.CanShow())
-                {
-                    ShowEvent(ev, stage.location);
+                    ShowEvent(radiant, stage);
                     return;
                 }
             }
 
+            while (eventIndex < stage.events.Count)
+            {
+                GameEvent ev = stage.events[eventIndex];
+                eventIndex++;
+
+                if (!string.IsNullOrEmpty(ev.group))
+                {
+                    if (!usedGroups.Add(ev.group)) continue;   // group already rolled
+                    ev = PickFromGroup(stage, ev.group);
+                    if (ev == null) continue;
+                }
+                else if (!ev.CanShow())
+                {
+                    continue;
+                }
+
+                ShowEvent(ev, stage);
+                return;
+            }
+
             stageIndex++;
             eventIndex = 0;
+            usedGroups.Clear();
+            radiantRolled = false;
         }
 
         ShowDaySummary();
     }
 
-    private bool GetRadiantEventChance()
+    // Rolls radiantEventChance, then picks one eligible event from RadiantEvents.cs for this location.
+    private GameEvent PickRadiantEvent(Location location)
     {
-        return random.NextDouble() < 0.1; // 10% chance for a radiant event
+        if (UnityEngine.Random.value >= radiantEventChance) return null;
+
+        List<GameEvent> candidates = RadiantEvents.For(location).FindAll(e => e.CanShow());
+        if (candidates.Count == 0) return null;
+
+        return candidates[UnityEngine.Random.Range(0, candidates.Count)];
     }
 
-    private void ShowEvent(GameEvent ev, Location location)
+    // Weighted random pick among the group's events that can show right now.
+    private GameEvent PickFromGroup(DayStage stage, string group)
     {
-        GameState.Instance.currentLocation = location;
-        SetBackground(location);
-        SetAudio(location);
-        PlaySpecialAudio(ev.id);
+        var candidates = new List<GameEvent>();
+        float total = 0f;
+
+        foreach (var ev in stage.events)
+        {
+            if (ev.group == group && ev.CanShow())
+            {
+                candidates.Add(ev);
+                total += ev.weight;
+            }
+        }
+
+        if (candidates.Count == 0) return null;
+
+        float roll = UnityEngine.Random.value * total;
+        foreach (var ev in candidates)
+        {
+            roll -= ev.weight;
+            if (roll <= 0f) return ev;
+        }
+        return candidates[candidates.Count - 1];
+    }
+
+    private void ShowEvent(GameEvent ev, DayStage stage)
+    {
+        var gs = GameState.Instance;
+        gs.currentLocation = stage.location;
+        if (ev.once) gs.AddPermanentFlag(ev.SeenFlag);
+
+        SetBackground(ev.GetBackdrop() ?? stage.backdrop);
+        SetAudio(stage.location);
+        PlaySpecialAudio(ev.id, warnIfMissing: false);   // plays only if a clip has this event's id
 
         // Start with whoever is "present", or nobody.
         // The player appears whenever someone else is on screen.
@@ -271,25 +336,37 @@ public class EventUI : MonoBehaviour
 
     private void ShowNextLine()
     {
-        if (lineQueue.Count == 0)
+        // Skip lines whose text came out empty (used for conditional lines).
+        while (lineQueue.Count > 0)
         {
-            if (choicesAfterLines != null) ShowChoices(choicesAfterLines);
-            else ShowNextEvent();
+            DialogueLine line = lineQueue.Dequeue();
+            string text = line.Text;
+            if (string.IsNullOrEmpty(text)) continue;
+
+            DisplayLine(line, text);
+
+            if (!HasMoreLines() && choicesAfterLines != null)
+                ShowChoices(choicesAfterLines);
+            else
+                ShowContinue();
             return;
         }
 
-        DisplayLine(lineQueue.Dequeue());
-
-        if (lineQueue.Count == 0 && choicesAfterLines != null)
-            ShowChoices(choicesAfterLines);
-        else
-            ShowContinue();
+        if (choicesAfterLines != null) ShowChoices(choicesAfterLines);
+        else ShowNextEvent();
     }
 
-    private void DisplayLine(DialogueLine line)
+    private bool HasMoreLines()
     {
-        string text = line.Text;
+        foreach (var line in lineQueue)
+        {
+            if (!string.IsNullOrEmpty(line.Text)) return true;
+        }
+        return false;
+    }
 
+    private void DisplayLine(DialogueLine line, string text)
+    {
         switch (line.speaker)
         {
             case CharacterId.None:
@@ -435,20 +512,20 @@ public class EventUI : MonoBehaviour
 
     // ================= BACKGROUND =================
 
-    private void SetBackground(Location location)
+    private void SetBackground(Backdrop backdrop)
     {
         if (backgroundImage == null) return;
 
         foreach (var bg in backgrounds)
         {
-            if (bg.location == location)
+            if (bg.backdrop == backdrop)
             {
                 backgroundImage.sprite = bg.sprite;
                 return;
             }
         }
 
-        Debug.LogWarning($"No background assigned for {location}");
+        Debug.LogWarning($"No background assigned for {backdrop}");
     }
 
     // ================= AUDIO =================
@@ -478,15 +555,15 @@ public class EventUI : MonoBehaviour
     }
 
     // Plays a one-shot sound effect over the ambient audio.
-    // Call from an event choice, e.g. EventUI.Instance.PlaySpecial(string id)
-    public void PlaySpecialAudio(string id)
+    // Call from an event choice, e.g. EventUI.Instance.PlaySpecialAudio("CarHorn")
+    public void PlaySpecialAudio(string id, bool warnIfMissing = true)
     {
         if (specialAudioSource == null || specialAudioClips == null) return;
 
         var audioClip = specialAudioClips.Find(c => c.id == id);
-        if (audioClip == null)
+        if (audioClip == null || audioClip.clip == null)
         {
-            Debug.LogWarning($"No special audio clip with id {id}");
+            if (warnIfMissing) Debug.LogWarning($"No special audio clip with id {id}");
             return;
         }
 
@@ -503,7 +580,7 @@ public class EventUI : MonoBehaviour
             timeText.text = $"{gs.DayName}  {gs.GetTimeString()}";
 
         if (statusText != null)
-            statusText.text = $"Energy: {gs.energy}   Mood: {gs.mood}";
+            statusText.text = $"Energy: {gs.energy}   Mood: {gs.mood}   ${gs.money}   Job: {gs.standing}/10";
     }
 
     // ================= SUMMARIES =================
@@ -523,8 +600,12 @@ public class EventUI : MonoBehaviour
         else
         {
             sb.AppendLine($"<b>{gs.DayName} is over.</b>");
-            sb.AppendLine(gs.HasFlag("LateToWork") ? "You were late to work." : "You made it to work on time.");
+            if (gs.HasFlag("Jailed")) sb.AppendLine("You spent the night in a jail cell.");
+            else sb.AppendLine(gs.HasFlag("LateToWork") ? "You were late to work." : "You made it to work on time.");
             sb.AppendLine($"Energy: {gs.energy}   Mood: {gs.mood}");
+            sb.AppendLine($"Money: ${gs.money}   Job standing: {gs.standing}/10");
+            if (gs.standing <= 2) sb.AppendLine("<color=#FF6B6B>Your job is hanging by a thread.</color>");
+            if (gs.money <= 10) sb.AppendLine("<color=#FF6B6B>You're almost out of money.</color>");
             sb.AppendLine();
 
             foreach (string entry in gs.GetHistoryForDay(gs.currentDay))
@@ -555,8 +636,10 @@ public class EventUI : MonoBehaviour
         int late = gs.GetCount("TimesLate");
         int productive = gs.GetCount("ProductiveDays");
         int friendship = gs.GetCount("NeighborFriendship");
+        bool fired = gs.HasPermanentFlag("Fired");
+        bool arrested = gs.HasPermanentFlag("Arrested");
 
-        sb.AppendLine("<b>The week is over.</b>");
+        sb.AppendLine(fired ? $"<b>You were fired on {gs.DayName}.</b>" : "<b>The week is over.</b>");
         sb.AppendLine();
 
         foreach (string recap in gs.GetDayRecaps())
@@ -564,20 +647,43 @@ public class EventUI : MonoBehaviour
 
         sb.AppendLine();
         sb.AppendLine($"Days late: {late}   Productive days: {productive}");
+        sb.AppendLine($"Job standing: {gs.standing}/10   Money: ${gs.money}");
         sb.AppendLine($"Final energy: {gs.energy}   Final mood: {gs.mood}");
+        sb.AppendLine();
 
+        // ---------- What your choices led to ----------
         if (friendship >= 2) sb.AppendLine("You and your neighbor are becoming friends.");
         else if (friendship <= -2) sb.AppendLine("Your neighbor has stopped waving.");
 
         if (gs.GetCount("CoworkerFriendship") >= 3) sb.AppendLine("Your coworker considers you a real friend.");
         if (gs.GetCount("CoffeeVisits") >= 3) sb.AppendLine("The barista knows your order by heart.");
 
+        if (gs.HasPermanentFlag("HasDog")) sb.AppendLine("You adopted a scruffy stray. Best decision of the week.");
+        else if (gs.HasPermanentFlag("DogGone")) sb.AppendLine("The stray dog found someone else to follow.");
+
+        if (gs.HasPermanentFlag("VagrantHoused")) sb.AppendLine("Joe got a bed at the shelter, partly thanks to you.");
+        else if (gs.GetCount("VagrantKindness") >= 2) sb.AppendLine("Joe always saves you a seat on the bus now.");
+
+        if (gs.HasPermanentFlag("PetitionSigned")) sb.AppendLine("Route 9 was saved. Your signature counted.");
+        else if (gs.HasPermanentFlag("MetPetitioner")) sb.AppendLine("Route 9 was cut. You had your chance to sign.");
+
+        if (gs.HasPermanentFlag("ThugCaught")) sb.AppendLine("The mugger is behind bars thanks to your tip.");
+        if (arrested) sb.AppendLine("You now have an arrest on your record.");
+        if (gs.HasPermanentFlag("PresentationWin")) sb.AppendLine("You nailed the client presentation.");
+        else if (gs.HasPermanentFlag("PresentationFail")) sb.AppendLine("The client presentation still haunts you.");
+
         sb.AppendLine();
 
-        // Ending
-        if (late >= 3)
+        // ---------- Ending ----------
+        if (fired)
+            sb.AppendLine("<b>Ending: Pink Slip.</b> You're cleaning out your desk.");
+        else if (arrested)
+            sb.AppendLine("<b>Ending: Jailbird.</b> Easy money turned out to be very expensive.");
+        else if (gs.standing <= 2)
             sb.AppendLine("<b>Ending: On Thin Ice.</b> Your boss has put you on a final warning.");
-        else if (productive >= 4 && late <= 1)
+        else if (gs.money <= 0)
+            sb.AppendLine("<b>Ending: Flat Broke.</b> You made it to the weekend with empty pockets.");
+        else if (gs.standing >= 8)
             sb.AppendLine("<b>Ending: Rising Star.</b> Your boss mentions a promotion.");
         else if (gs.mood >= 8)
             sb.AppendLine("<b>Ending: Good Vibes.</b> Work was fine, but you enjoyed your week.");

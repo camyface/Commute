@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 
-// Every place the player can be. Each one gets its own background image.
+// Every stage of the day. Each one gets its own ambient audio (in this order).
 public enum Location
 {
     Home,
@@ -12,7 +12,28 @@ public enum Location
     CommuteHome
 }
 
+// Every background image. Assign a sprite for each in EventManager > Backgrounds.
+// Stages pick a default; any event can override it with .Scene(...).
+public enum Backdrop
+{
+    Home,
+    OutsideHome,
+    CommuteToWork,
+    OutsideWork,
+    Work,
+    CommuteHome,
+    OutsideHomeEvening,
+    OutsideWorkEvening,
+    BusDay,
+    BusEvening,
+    CarEvening,
+    MeetingRoom,
+    Warehouse,
+    JailCell
+}
+
 // Everyone who can talk. None = narration, Player = you.
+// Always add new characters at the END so Inspector assignments don't shift.
 public enum CharacterId
 {
     None,
@@ -21,7 +42,11 @@ public enum CharacterId
     Boss,
     Coworker,
     Barista,
-    BusDriver
+    BusDriver,
+    Vagrant,
+    Petitioner,
+    Thug,
+    Dog
 }
 
 // Which portrait to show. Missing ones fall back to Neutral.
@@ -49,6 +74,7 @@ public class DialogueLine
     }
 
     // Built when shown, so lines can react to the current state.
+    // Lines that come out empty ("") are skipped automatically.
     public string Text => getText();
     public Expression Expression => getExpression();
 }
@@ -71,13 +97,14 @@ public class EventChoice
 // Built with a chain of calls, for example:
 //
 //   new GameEvent("Id")
+//       .Group("WorkMorning")                      // one random event per group per stage
+//       .Once()                                    // only ever happens once per week
+//       .Scene(Backdrop.MeetingRoom)               // override the stage's background
 //       .With(Boss)                                // portrait shown from the start
 //       .Narrate("Your boss is waiting.")
 //       .Say(Boss, "Rough morning?", Annoyed)
 //       .Choice("Apologize", () => { ... })
 //           .Reply(Boss, "Fine. Don't make a habit of it.")
-//       .Choice("Blame traffic")
-//           .Reply(Boss, "Traffic, huh.")
 public class GameEvent
 {
     public readonly string id;
@@ -86,7 +113,12 @@ public class GameEvent
     public CharacterId presentCharacter = CharacterId.None;
     public Expression presentExpression = Expression.Neutral;
 
+    public string group;          // events sharing a group: one is picked at random
+    public float weight = 1f;     // higher = more likely to be picked from its group
+    public bool once;             // never shows again after the first time this week
+
     private readonly List<Func<bool>> conditions = new List<Func<bool>>();
+    private Func<Backdrop> backdrop;
 
     public GameEvent(string id)
     {
@@ -97,7 +129,9 @@ public class GameEvent
     public GameEvent(string id, string text) : this(id) { Narrate(text); }
     public GameEvent(string id, Func<string> text) : this(id) { Narrate(text); }
 
-    // ---------- Conditions ----------
+    public string SeenFlag => "Seen_" + id;
+
+    // ---------- Conditions & variety ----------
 
     // Only show this event when the condition is true.
     // Call it more than once to require several conditions.
@@ -117,13 +151,58 @@ public class GameEvent
         });
     }
 
+    // Random chance (0-1) that this event is allowed to happen when reached.
+    public GameEvent Chance(float probability)
+    {
+        return When(() => UnityEngine.Random.value < probability);
+    }
+
+    // Put this event in a random pool. When the day reaches the first event of a group,
+    // ONE eligible event from that group (in the same stage) is picked by weight.
+    public GameEvent Group(string name, float weight = 1f)
+    {
+        group = name;
+        this.weight = weight;
+        return this;
+    }
+
+    // Only happens once per week.
+    public GameEvent Once()
+    {
+        once = true;
+        return this;
+    }
+
     public bool CanShow()
     {
+        if (once && GameState.Instance.HasPermanentFlag(SeenFlag)) return false;
+
         foreach (var condition in conditions)
         {
             if (!condition()) return false;
         }
         return true;
+    }
+
+    // ---------- Background ----------
+
+    public GameEvent Scene(Backdrop scene)
+    {
+        backdrop = () => scene;
+        return this;
+    }
+
+    // Background decided when the event is shown, e.g. bus vs car.
+    public GameEvent Scene(Func<Backdrop> scene)
+    {
+        backdrop = scene;
+        return this;
+    }
+
+    // Null = use the stage's background.
+    public Backdrop? GetBackdrop()
+    {
+        return backdrop != null ? backdrop() : (Backdrop?)null;
     }
 
     // ---------- Characters & lines ----------
@@ -188,11 +267,29 @@ public class GameEvent
 public class DayStage
 {
     public readonly Location location;
+    public readonly Backdrop backdrop;
     public readonly List<GameEvent> events;
 
     public DayStage(Location location, params GameEvent[] events)
+        : this(location, DefaultBackdrop(location), events) { }
+
+    public DayStage(Location location, Backdrop backdrop, params GameEvent[] events)
     {
         this.location = location;
+        this.backdrop = backdrop;
         this.events = new List<GameEvent>(events);
+    }
+
+    private static Backdrop DefaultBackdrop(Location location)
+    {
+        switch (location)
+        {
+            case Location.Home: return Backdrop.Home;
+            case Location.OutsideHome: return Backdrop.OutsideHome;
+            case Location.CommuteToWork: return Backdrop.CommuteToWork;
+            case Location.OutsideWork: return Backdrop.OutsideWork;
+            case Location.Work: return Backdrop.Work;
+            default: return Backdrop.CommuteHome;
+        }
     }
 }

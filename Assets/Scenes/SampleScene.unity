@@ -938,18 +938,34 @@ MonoBehaviour:
   statusText: {fileID: 0}
   backgroundImage: {fileID: 611104770}
   backgrounds:
-  - location: 0
+  - backdrop: 0
     sprite: {fileID: 21300000, guid: 94a57f67398a31a46b735ce4a09e7176, type: 3}
-  - location: 1
+  - backdrop: 1
     sprite: {fileID: -6743198148612533178, guid: 9f6ff80576cae6345a72549ce0d0c730, type: 3}
-  - location: 2
+  - backdrop: 2
     sprite: {fileID: 21300000, guid: b9d99e9bfb3760945b5fbb534f3eb2a6, type: 3}
-  - location: 3
+  - backdrop: 3
     sprite: {fileID: -8982871925500164132, guid: fbc2ef30052bf4c46a275ad44ab1e119, type: 3}
-  - location: 4
+  - backdrop: 4
     sprite: {fileID: 4251315261547645898, guid: 258675596078ed049b348095902b6de4, type: 3}
-  - location: 5
-    sprite: {fileID: 21300000, guid: b9d99e9bfb3760945b5fbb534f3eb2a6, type: 3}
+  - backdrop: 10
+    sprite: {fileID: 681896718633334208, guid: b279543512b5c08478f8cea2dccbb5f1, type: 3}
+  - backdrop: 8
+    sprite: {fileID: -3450108048766138971, guid: 887eb30cc74875a419d619e53476e43c, type: 3}
+  - backdrop: 9
+    sprite: {fileID: 2551481125520934492, guid: 380632cf16434724faacaa9f55b191fb, type: 3}
+  - backdrop: 6
+    sprite: {fileID: -7821611931094365760, guid: 79ebe23f763bb5442be1096924274863, type: 3}
+  - backdrop: 7
+    sprite: {fileID: -8195119639593121352, guid: 0b46b8caa2b3b1e40868ac403d0751c4, type: 3}
+  - backdrop: 11
+    sprite: {fileID: -6916567172492517116, guid: 05cf5c6402c9079408f862d8b567634c, type: 3}
+  - backdrop: 12
+    sprite: {fileID: 7492079891094001175, guid: abe7d22a2ea965b4a864ee466b5af666, type: 3}
+  - backdrop: 13
+    sprite: {fileID: 68215294038110208, guid: 6f866ff56f2aded49959126b95afa8ce, type: 3}
+  - backdrop: 5
+    sprite: {fileID: 681896718633334208, guid: b279543512b5c08478f8cea2dccbb5f1, type: 3}
   characterImage: {fileID: 1827286436}
   playerImage: {fileID: 701144966}
   speakerNameColor: {r: 1, g: 0.85, b: 0.4, a: 1}
@@ -971,8 +987,8 @@ MonoBehaviour:
   - id: 4
     displayName: Coworker
     neutral: {fileID: -542397891133167214, guid: 68a2783b0f1c54e4d963d3b0dbc4f655, type: 3}
-    happy: {fileID: 0}
-    annoyed: {fileID: 0}
+    happy: {fileID: -2884561949756040661, guid: 5ff13190bf8321647af917e24f260f8e, type: 3}
+    annoyed: {fileID: 6429538934770034249, guid: 3952e283043848d468740c478929910d, type: 3}
     sad: {fileID: 0}
     surprised: {fileID: 0}
   - id: 5
@@ -983,10 +999,10 @@ MonoBehaviour:
     sad: {fileID: 0}
     surprised: {fileID: 0}
   - id: 6
-    displayName: 
-    neutral: {fileID: 0}
+    displayName: Bus Driver
+    neutral: {fileID: -7288754942777307000, guid: a0a7c5c180a84b14e88ea0a3757ec6cc, type: 3}
     happy: {fileID: 0}
-    annoyed: {fileID: 0}
+    annoyed: {fileID: -2018194984361685254, guid: aa16724fb251caf45b96c582c41208df, type: 3}
     sad: {fileID: 0}
     surprised: {fileID: 0}
   - id: 1
@@ -996,6 +1012,34 @@ MonoBehaviour:
     annoyed: {fileID: 2642782338597278901, guid: d315a0685ea6a2d4f8c63303646cd7a1, type: 3}
     sad: {fileID: 9122230752220516883, guid: adb1b2e9a3e924f43b1d6f2f4b6e36a0, type: 3}
     surprised: {fileID: -6316550989566708335, guid: a47651aaed67ed64ea64a5ed6df30a18, type: 3}
+  - id: 7
+    displayName: Vagrant
+    neutral: {fileID: 5083520787876122392, guid: f66a63974feba354e966e020df625e42, type: 3}
+    happy: {fileID: 0}
+    annoyed: {fileID: 0}
+    sad: {fileID: 0}
+    surprised: {fileID: 0}
+  - id: 8
+    displayName: Petitioner
+    neutral: {fileID: 2484852985652584071, guid: d1e6adca5d6b4664ca839db339a0b9e5, type: 3}
+    happy: {fileID: 0}
+    annoyed: {fileID: 0}
+    sad: {fileID: 0}
+    surprised: {fileID: 0}
+  - id: 9
+    displayName: Thug
+    neutral: {fileID: -686946535491118575, guid: 749744233691b0145ab8a20f4fa2d631, type: 3}
+    happy: {fileID: 0}
+    annoyed: {fileID: 0}
+    sad: {fileID: 0}
+    surprised: {fileID: 0}
+  - id: 10
+    displayName: Dog
+    neutral: {fileID: -7396271910065829097, guid: 1b4159461ca9d7146951a3ce80ae8b5b, type: 3}
+    happy: {fileID: 0}
+    annoyed: {fileID: 0}
+    sad: {fileID: 0}
+    surprised: {fileID: 0}
   continueLabel: Continue
   speakingColor: {r: 1, g: 1, b: 1, a: 1}
   listeningColor: {r: 0.55, g: 0.55, b: 0.55, a: 1}
@@ -1007,7 +1051,9 @@ MonoBehaviour:
   - {fileID: 8300000, guid: 9998cc2dae204cc4495ddc443e4cc4a6, type: 3}
   - {fileID: 8300000, guid: 732cb33eac3864b4ca5e1edeccd963c3, type: 3}
   specialAudioClips:
-  - {fileID: 0}
+  - id: 
+    clip: {fileID: 0}
+  radiantEventChance: 0.1
   summaryPanel: {fileID: 1392781514}
   summaryText: {fileID: 115475274}
   summaryButtonText: {fileID: 1729157804}
@@ -1782,8 +1828,8 @@ MonoBehaviour:
   m_faceColor:
     serializedVersion: 2
     rgba: 4294967295
-  m_fontSize: 36
-  m_fontSizeBase: 36
+  m_fontSize: 22
+  m_fontSizeBase: 22
   m_fontWeight: 400
   m_enableAutoSizing: 0
   m_fontSizeMin: 18
@@ -1821,7 +1867,7 @@ MonoBehaviour:
   m_VertexBufferAutoSizeReduction: 0
   m_useMaxVisibleDescender: 1
   m_pageToDisplay: 1
-  m_margin: {x: -59.185303, y: 0, z: 0, w: 0}
+  m_margin: {x: 7.3983154, y: 0, z: 0, w: 0}
   m_isUsingLegacyAnimationComponent: 0
   m_isVolumetricText: 0
   m_hasFontAssetChanged: 0
@@ -3280,17 +3326,25 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::GameState
   totalDays: 5
+  rainChance: 0.35
   startTimeMinutes: 390
   startEnergy: 5
   startMood: 5
+  startMoney: 80
+  startStanding: 5
   workStartMinutes: 480
   workEndMinutes: 1020
   currentDay: 1
   timeMinutes: 390
   energy: 5
   mood: 0
+  money: 0
+  standing: 0
+  isRainy: 0
   bedTimeMinutes: 0
   currentLocation: 0
+  weekOver: 0
+  weekOverReason: 
 --- !u!4 &2074599003
 Transform:
   m_ObjectHideFlags: 0
