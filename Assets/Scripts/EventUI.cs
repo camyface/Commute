@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text;
 using TMPro;
 using UnityEngine;
@@ -83,7 +84,13 @@ public class EventUI : MonoBehaviour
     public AudioSource ambientAudioSource;
     public AudioSource specialAudioSource;
     public AudioClip[] ambientAudioClips;   // one per Location, in enum order
-    public AudioClip[] specialAudioClips;
+    [Serializable]
+    public class SpecialAudioClip
+    {
+        public string id;       // e.g. "Doorbell", "CarHorn"
+        public AudioClip clip;
+    }
+    public List<SpecialAudioClip> specialAudioClips;
 
     [Header("Summary Panel")]
     public GameObject summaryPanel;
@@ -95,6 +102,7 @@ public class EventUI : MonoBehaviour
     private int stageIndex;
     private int eventIndex;
     private List<EventChoice> currentChoices = new List<EventChoice>();
+    private System.Random random = new System.Random();
 
     // Dialogue playback
     private readonly Queue<DialogueLine> lineQueue = new Queue<DialogueLine>();
@@ -193,8 +201,16 @@ public class EventUI : MonoBehaviour
 
             while (eventIndex < stage.events.Count)
             {
-                GameEvent ev = stage.events[eventIndex];
-                eventIndex++;
+                GameEvent ev;
+                if (GetRadiantEventChance() && RadiantEvents.gameEvents.ContainsKey(stage.location))
+                {
+                    ev = RadiantEvents.gameEvents.TryGetValue(stage.location, out GameEvent @event) ? @event : null;
+                }
+                else
+                {
+                    ev = stage.events[eventIndex];
+                    eventIndex++;
+                }
 
                 if (ev.CanShow())
                 {
@@ -208,6 +224,11 @@ public class EventUI : MonoBehaviour
         }
 
         ShowDaySummary();
+    }
+
+    private bool GetRadiantEventChance()
+    {
+        return random.NextDouble() < 0.1; // 10% chance for a radiant event
     }
 
     private void ShowEvent(GameEvent ev, Location location)
@@ -456,18 +477,19 @@ public class EventUI : MonoBehaviour
     }
 
     // Plays a one-shot sound effect over the ambient audio.
-    // Call from an event choice, e.g. EventUI.Instance.PlaySpecial(0)
-    public void PlaySpecial(int index)
+    // Call from an event choice, e.g. EventUI.Instance.PlaySpecial(string id)
+    public void PlaySpecial(string id)
     {
         if (specialAudioSource == null || specialAudioClips == null) return;
 
-        if (index < 0 || index >= specialAudioClips.Length || specialAudioClips[index] == null)
+        var audioClip = specialAudioClips.Find(c => c.id == id);
+        if (audioClip == null)
         {
-            Debug.LogWarning($"No special audio clip at index {index}");
+            Debug.LogWarning($"No special audio clip with id {id}");
             return;
         }
 
-        specialAudioSource.PlayOneShot(specialAudioClips[index]);
+        specialAudioSource.PlayOneShot(audioClip.clip);
     }
 
     // ================= HUD =================
