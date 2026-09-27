@@ -236,6 +236,7 @@ public class EventUI : MonoBehaviour
         GameState.Instance.currentLocation = location;
         SetBackground(location);
         SetAudio(location);
+        PlaySpecialAudio(ev.id);
 
         // Start with whoever is "present", or nobody.
         // The player appears whenever someone else is on screen.
@@ -478,7 +479,7 @@ public class EventUI : MonoBehaviour
 
     // Plays a one-shot sound effect over the ambient audio.
     // Call from an event choice, e.g. EventUI.Instance.PlaySpecial(string id)
-    public void PlaySpecial(string id)
+    public void PlaySpecialAudio(string id)
     {
         if (specialAudioSource == null || specialAudioClips == null) return;
 
