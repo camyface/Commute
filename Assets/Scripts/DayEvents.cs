@@ -1,4 +1,6 @@
 using System.Collections.Generic;
+using static CharacterId;   // lets you write Boss instead of CharacterId.Boss
+using static Expression;    // lets you write Happy instead of Expression.Happy
 
 // All the day's content lives here. BuildDay() is called fresh every morning,
 // so events can change depending on which day it is.
@@ -17,7 +19,8 @@ public static class DayEvents
         bool isMonday = day == 1;
         bool isWednesday = day == 3;
         bool isFriday = day == 5;
-        bool rainyDay = day == 2 || day == 4;   // Tuesday and Thursday
+        bool rainyDay = day == 2 || day == 4;          // Tuesday and Thursday
+        bool coworkerNeedsHelp = day == 2 || day == 4;
 
         // Shorthand for times: T(7, 30) = 7:30 AM, T(17) = 5:00 PM
         int T(int hour, int minute = 0) => GameState.TimeOf(hour, minute);
@@ -40,8 +43,10 @@ public static class DayEvents
 
         bool IsRushHour() => gs.timeMinutes >= T(17) && gs.timeMinutes < T(18, 30);
 
-        // Across the week: chatting builds friendship, ignoring hurts it.
-        int friendship = gs.GetCount("NeighborFriendship");
+        // Relationship values at the start of today.
+        int neighborFriendship = gs.GetCount("NeighborFriendship");
+        int coworkerFriendship = gs.GetCount("CoworkerFriendship");
+
         bool CookiesShow() => gs.GetCount("NeighborFriendship") >= 2
                               && !gs.HasPermanentFlag("GotCookies")
                               && gs.IsBefore(20);
@@ -103,10 +108,17 @@ public static class DayEvents
             new DayStage(Location.OutsideHome,
 
                 // Time-based: the neighbor is only outside early.
-                new GameEvent("Neighbor", friendship >= 1
-                        ? "Your neighbor spots you and grins. \"Morning again!\""
-                        : "Your neighbor is watering their plants and waves you over.")
+                // Their greeting depends on how you've treated them this week.
+                new GameEvent("Neighbor")
                     .When(() => gs.IsBefore(7, 20))
+                    .With(Neighbor, neighborFriendship <= -1 ? Sad : Neutral)
+                    .Narrate("Your neighbor is out front, watering their plants.")
+                    .Say(Neighbor,
+                        neighborFriendship >= 1 ? "Well, if it isn't my favorite early bird! Morning again!"
+                        : neighborFriendship <= -1 ? "Oh. Morning."
+                        : "Good morning! Off to work already?",
+                        neighborFriendship >= 1 ? Happy : neighborFriendship <= -1 ? Sad : Neutral)
+
                     .Choice("Stop and chat", () =>
                     {
                         gs.AddHistory("Chatted with the neighbor");
@@ -114,12 +126,19 @@ public static class DayEvents
                         gs.ChangeMood(1);
                         gs.AddTime(15);
                     })
+                        .Reply(Neighbor, neighborFriendship >= 1
+                            ? "My tomatoes finally came in, you know. I'll have to save you some."
+                            : "You know, you're the first person on this street to actually stop and talk.", Happy)
+                        .Reply(Player, "I should get going, but this was nice.", Happy)
+                        .Reply(Neighbor, "Go on, don't be late on my account!", Happy)
+
                     .Choice("Wave and keep walking", () =>
                     {
                         gs.AddHistory("Brushed off the neighbor");
                         gs.AddCount("NeighborFriendship", -1);
                         gs.ChangeMood(-1);
-                    }),
+                    })
+                        .Reply(Neighbor, "...Right. Busy, busy.", Sad),
 
                 new GameEvent("QuietStreet", "The street is quiet. Your neighbor has already gone inside.")
                     .When(() => !gs.IsBefore(7, 20))
@@ -155,8 +174,14 @@ public static class DayEvents
                     .Choice("Chase it down", () =>
                     {
                         gs.AddHistory("Sprinted to catch the bus");
+                        gs.AddCount("BusChases");
                         gs.ChangeEnergy(-2);
-                    }),
+                    })
+                        .Reply(None, "The bus squeals to a stop. The doors hiss open.")
+                        .Reply(BusDriver, () => gs.GetCount("BusChases") >= 2
+                            ? "You again? I'm starting to think you enjoy the cardio."
+                            : "Cutting it close, aren't we? Hop on.",
+                            () => gs.GetCount("BusChases") >= 2 ? Happy : Surprised),
 
                 // Only on rainy days, and only if you walked without an umbrella.
                 new GameEvent("Rain", "Halfway there, it starts pouring.")
@@ -177,16 +202,32 @@ public static class DayEvents
             // ==================== OUTSIDE WORK (morning) ====================
             new DayStage(Location.OutsideWork,
 
+                // Across the week: the barista starts to remember you.
                 new GameEvent("ArriveAtWork", () => gs.IsLateForWork()
                         ? $"You reach the office at {gs.GetTimeString()}. You're late."
                         : $"You reach the office at {gs.GetTimeString()}. The coffee cart out front is open.")
                     .Choice("Grab a coffee", () =>
                     {
+                        gs.AddCount("CoffeeVisits");
                         gs.AddHistory("Grabbed a coffee");
                         gs.ChangeEnergy(2);
-                        gs.AddTime(5);
+                        gs.AddTime(gs.GetCount("CoffeeVisits") >= 3 ? 2 : 5);  // regulars get served faster
                         CheckIn();
                     }, () => gs.timeMinutes <= gs.workStartMinutes - 5)
+                        .Reply(Barista, () =>
+                        {
+                            int visits = gs.GetCount("CoffeeVisits");
+                            string line;
+                            if (visits == 1) line = "Morning! What can I get you?";
+                            else if (visits == 2) line = "Back again! Same as yesterday?";
+                            else line = "Your usual's already poured. Have a good one!";
+
+                            // Chain reaction: walked in the rain without an umbrella.
+                            if (gs.HasFlag("GotWet")) line += " ...You might want a towel with that.";
+                            return line;
+                        }, () => gs.HasFlag("GotWet") ? Surprised
+                               : gs.GetCount("CoffeeVisits") >= 2 ? Happy : Neutral)
+
                     .Choice("Head inside", CheckIn)
             ),
 
@@ -194,28 +235,47 @@ public static class DayEvents
             new DayStage(Location.Work,
 
                 // Across the week: the boss gets less patient each time you're late.
-                new GameEvent("BossLate", () =>
+                new GameEvent("BossLate")
+                    .When(() => gs.HasFlag("LateToWork"))
+                    .With(Boss, Annoyed)
+                    .Narrate("Your boss is waiting at your desk.")
+                    .Say(Boss, () =>
                     {
                         int times = gs.GetCount("TimesLate");
-                        if (times <= 1) return "Your boss is waiting at your desk. \"Rough morning?\"";
-                        if (times == 2) return "Your boss is waiting at your desk. \"That's twice this week.\"";
-                        return "Your boss is waiting at your desk, arms crossed. \"This is becoming a pattern.\"";
-                    })
-                    .When(() => gs.HasFlag("LateToWork"))
+                        if (times <= 1) return "Rough morning?";
+                        if (times == 2) return "That's twice this week.";
+                        return "This is becoming a pattern.";
+                    }, Annoyed)
+
                     .Choice("Apologize", () =>
                     {
                         gs.AddHistory("Apologized to the boss");
                         gs.ChangeMood(-1);
                     })
+                        .Reply(Player, "Sorry. It won't happen again.", Sad)
+                        .Reply(Boss, () => gs.GetCount("TimesLate") >= 3
+                            ? "You said that last time. Consider this your final warning."
+                            : "Fine. Just don't make a habit of it.",
+                            () => gs.GetCount("TimesLate") >= 3 ? Annoyed : Neutral)
+
                     .Choice("Blame the traffic", () =>
                     {
                         gs.AddHistory("Blamed the traffic");
                         gs.AddCount("LiesToBoss");
-                    }),
+                    })
+                        .Reply(Player, "Traffic was a nightmare this morning.")
+                        .Reply(Boss, () => gs.GetCount("LiesToBoss") >= 2
+                            ? "Traffic. Again. Funny, I drove the same road and it was empty."
+                            : "Traffic, huh. Alright.",
+                            () => gs.GetCount("LiesToBoss") >= 2 ? Annoyed : Neutral),
 
                 // Monday only.
-                new GameEvent("MondayMeeting", "The Monday all-hands meeting runs long.")
+                new GameEvent("MondayMeeting")
                     .When(() => isMonday)
+                    .With(Boss)
+                    .Narrate("The Monday all-hands meeting drags on.")
+                    .Say(Boss, "Last thing: the quarterly report is due Friday. No extensions. Everyone clear?")
+
                     .Choice("Pay attention", () =>
                     {
                         gs.AddHistory("Paid attention in the Monday meeting");
@@ -223,11 +283,15 @@ public static class DayEvents
                         gs.AddPermanentFlag("KnowsTheDeadline");
                         gs.AdvanceTo(T(10));
                     })
+                        .Reply(Player, "Clear. Friday.")
+                        .Reply(Boss, "Good. Glad someone's listening.", Happy)
+
                     .Choice("Zone out", () =>
                     {
                         gs.AddHistory("Zoned out in the Monday meeting");
                         gs.AdvanceTo(T(10));
-                    }),
+                    })
+                        .Reply(None, "You catch the words \"Friday\" and \"no extensions.\" Probably not important."),
 
                 new GameEvent("MorningWork", () => gs.HasPermanentFlag("KnowsTheDeadline")
                         ? "You settle in at your desk. You remember the report is due Friday."
@@ -246,37 +310,80 @@ public static class DayEvents
                         gs.AdvanceTo(T(12));
                     }),
 
-                new GameEvent("Lunch", () => $"It's {gs.GetTimeString()}. Your coworkers are heading out for lunch.")
+                // The coworker warms up to you the more you hang out.
+                new GameEvent("Lunch")
                     .When(() => gs.IsAfter(12))
+                    .With(Coworker, Happy)
+                    .Say(Coworker, coworkerFriendship >= 2
+                        ? "Saved you a spot, obviously. Tacos?"
+                        : "Hey, a few of us are grabbing tacos. You in?", Happy)
+
                     .Choice("Join them", () =>
                     {
                         gs.AddHistory("Had lunch with coworkers");
+                        gs.AddCount("CoworkerFriendship");
                         gs.ChangeMood(2);
                         gs.AddTime(60);
                     })
+                        .Reply(Coworker, "Knew you'd cave. Let's go!", Happy)
+
                     .Choice("Eat at your desk", () =>
                     {
                         gs.AddHistory("Ate lunch at the desk");
                         gs.AddFlag("Productive");
                         gs.ChangeEnergy(1);
                         gs.AddTime(30);
-                    }),
+                    })
+                        .Reply(Coworker, "Suit yourself. More salsa for us."),
 
-                // Wednesday only.
-                new GameEvent("BirthdayCake", "It's a coworker's birthday. There's cake in the break room.")
+                // Tuesday and Thursday: the coworker needs a hand.
+                new GameEvent("CoworkerHelp")
+                    .When(() => coworkerNeedsHelp)
+                    .With(Coworker, Sad)
+                    .Narrate("Your coworker rolls their chair over to your desk.")
+                    .Say(Coworker, "Hey... do you have a minute? My spreadsheet just ate itself.", Sad)
+
+                    .Choice("Help them", () =>
+                    {
+                        gs.AddHistory("Helped a coworker fix their spreadsheet");
+                        gs.AddCount("CoworkerFriendship");
+                        gs.AddPermanentFlag("CoworkerOwesYou");
+                        gs.ChangeMood(1);
+                        gs.AddTime(45);
+                    })
+                        .Reply(None, "Forty-five minutes and three undo buttons later, it's fixed.")
+                        .Reply(Coworker, "You're a lifesaver. I owe you one. Seriously.", Happy)
+
+                    .Choice("Sorry, I'm swamped", () =>
+                    {
+                        gs.AddHistory("Turned down a coworker who needed help");
+                        gs.AddFlag("Productive");
+                    })
+                        .Reply(Coworker, "No worries... I'll figure it out.", Sad),
+
+                // Wednesday only: it's the coworker's birthday.
+                new GameEvent("BirthdayCake")
                     .When(() => isWednesday)
+                    .With(Coworker, Happy)
+                    .Say(Coworker, "Cake in the break room! It's my birthday, don't make me eat it alone.", Happy)
+
                     .Choice("Have a slice", () =>
                     {
-                        gs.AddHistory("Had birthday cake");
+                        gs.AddHistory("Had birthday cake with a coworker");
+                        gs.AddCount("CoworkerFriendship");
                         gs.ChangeMood(1);
                         gs.ChangeEnergy(1);
                         gs.AddTime(15);
                     })
+                        .Reply(Player, "Happy birthday!", Happy)
+                        .Reply(Coworker, "Thank you! Take the corner piece, it has the most frosting.", Happy)
+
                     .Choice("Keep working", () =>
                     {
-                        gs.AddHistory("Skipped the cake to keep working");
+                        gs.AddHistory("Skipped the birthday cake to keep working");
                         gs.AddFlag("Productive");
-                    }),
+                    })
+                        .Reply(Coworker, "Oh. Okay. I'll... save you a slice.", Sad),
 
                 // Stat-based: only shows if you're running low.
                 new GameEvent("AfternoonSlump", "It's mid-afternoon and you can barely keep your eyes open.")
@@ -293,18 +400,38 @@ public static class DayEvents
                         gs.ChangeEnergy(-1);
                     }),
 
-                // Friday only: the boss looks back on your week so far.
-                new GameEvent("FridayReview", () =>
+                // Friday only: the boss looks back on your week.
+                new GameEvent("FridayReview")
+                    .When(() => isFriday)
+                    .With(Boss)
+                    .Narrate("Your boss stops by your desk.")
+                    .Say(Boss, () =>
                     {
                         int productive = gs.GetCount("ProductiveDays") + (gs.HasFlag("Productive") ? 1 : 0);
                         int late = gs.GetCount("TimesLate");
 
-                        if (late >= 3) return "Your boss calls you into their office. \"We need to talk about your attendance.\"";
-                        if (productive >= 4) return "Your boss stops by. \"Great work this week. I've noticed.\"";
-                        return "Your boss stops by. \"Solid week. Have a good weekend.\"";
+                        if (late >= 3) return "My office. Now. We need to talk about your attendance.";
+                        if (productive >= 4) return "Great work this week. Really. I've noticed.";
+                        return "Solid week. Have a good weekend.";
+                    }, () =>
+                    {
+                        int productive = gs.GetCount("ProductiveDays") + (gs.HasFlag("Productive") ? 1 : 0);
+                        if (gs.GetCount("TimesLate") >= 3) return Annoyed;
+                        return productive >= 4 ? Happy : Neutral;
                     })
-                    .When(() => isFriday)
-                    .Choice("Nod"),
+
+                    .Choice("Nod")
+                        .Reply(Boss, () => gs.GetCount("TimesLate") >= 3
+                            ? "Close the door behind you."
+                            : "Mm-hm. Don't let it go to your head.",
+                            () => gs.GetCount("TimesLate") >= 3 ? Annoyed : Neutral)
+
+                    .Choice("Ask about a raise", null, () => gs.GetCount("TimesLate") <= 1)
+                        .Reply(Player, "Actually... could we talk about a raise?", Surprised)
+                        .Reply(Boss, () => gs.GetCount("ProductiveDays") >= 3
+                            ? "...Put something on my calendar for Monday."
+                            : "Let's see a few more weeks like this one first.",
+                            () => gs.GetCount("ProductiveDays") >= 3 ? Surprised : Neutral),
 
                 new GameEvent("EndOfDay", () =>
                     {
@@ -334,19 +461,33 @@ public static class DayEvents
             new DayStage(Location.OutsideWork,
 
                 // Time-based: only if you left before 6 PM.
-                new GameEvent("Drinks", isFriday
-                        ? "It's Friday! The whole office is heading to the bar across the street."
-                        : "A few coworkers are heading to the bar across the street. \"You coming?\"")
+                // Chain reaction: helping your coworker earlier pays off on Friday.
+                new GameEvent("Drinks")
                     .When(() => gs.IsBefore(18))
+                    .With(Coworker, Happy)
+                    .Say(Coworker, () =>
+                    {
+                        if (isFriday && gs.HasPermanentFlag("CoworkerOwesYou"))
+                            return "It's Friday! And the first round's on me. I owe you, remember?";
+                        if (isFriday)
+                            return "It's Friday! The whole office is heading to the bar. You're coming.";
+                        return "A few of us are hitting the bar across the street. You coming?";
+                    }, Happy)
+
                     .Choice("Join them", () =>
                     {
                         gs.AddHistory("Went for drinks with coworkers");
                         gs.AddFlag("WentForDrinks");
+                        gs.AddCount("CoworkerFriendship");
                         gs.ChangeMood(isFriday ? 3 : 2);
+                        if (isFriday && gs.HasPermanentFlag("CoworkerOwesYou")) gs.ChangeMood(1);
                         gs.ChangeEnergy(-1);
                         gs.AddTime(90);
                     })
-                    .Choice("Head home", () => gs.AddHistory("Skipped drinks")),
+                        .Reply(Coworker, "That's what I like to hear!", Happy)
+
+                    .Choice("Head home", () => gs.AddHistory("Skipped drinks"))
+                        .Reply(Coworker, "Boo. Next time, then!"),
 
                 new GameEvent("DarkStreet", "Everyone else has gone home. The street is dark and empty.")
                     .When(() => gs.IsAfter(18))
@@ -384,18 +525,26 @@ public static class DayEvents
             new DayStage(Location.OutsideHome,
 
                 // Across the week: two friendly chats earn you cookies (once).
-                new GameEvent("NeighborCookies", "Your neighbor catches you at the door with a plate of cookies. \"You've been great company this week!\"")
+                new GameEvent("NeighborCookies")
                     .When(CookiesShow)
+                    .With(Neighbor, Happy)
+                    .Narrate("Your neighbor catches you at the door, holding a plate of cookies.")
+                    .Say(Neighbor, "You've been such good company this week. Oatmeal raisin. Don't make that face.", Happy)
+
                     .Choice("Thank them", () =>
                     {
                         gs.AddHistory("Got cookies from the neighbor");
                         gs.AddPermanentFlag("GotCookies");
                         gs.ChangeMood(2);
-                    }),
+                    })
+                        .Reply(Player, "These smell amazing. Thank you.", Happy)
+                        .Reply(Neighbor, "Bring the plate back whenever. Goodnight, dear!", Happy),
 
                 // Across the week: brushing them off twice has consequences.
-                new GameEvent("NeighborCold", "Your neighbor sees you coming and pointedly goes inside.")
+                new GameEvent("NeighborCold")
                     .When(ColdShoulderShows)
+                    .With(Neighbor, Annoyed)
+                    .Narrate("Your neighbor sees you coming, turns, and pointedly goes inside.")
                     .Choice("Shrug it off", () =>
                     {
                         gs.AddHistory("Got the cold shoulder from the neighbor");
