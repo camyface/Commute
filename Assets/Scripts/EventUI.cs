@@ -971,6 +971,7 @@ public class EventUI : MonoBehaviour
     // Call from an event choice, e.g. EventUI.Instance.PlaySpecialAudio("CarHorn")
     public void PlaySpecialAudio(string id, bool warnIfMissing = true)
     {
+        specialAudioSource.Stop();
         if (specialAudioSource == null || specialAudioClips == null) return;
 
         var audioClip = specialAudioClips.Find(c => c.id == id);
