@@ -537,16 +537,43 @@ public class EventUI : MonoBehaviour
     {
         if (backgroundImage == null) return;
 
-        foreach (var bg in backgrounds)
+        // Try the exact backdrop, then its fallback (e.g. no CarDay image -> use CarEvening).
+        Backdrop? current = backdrop;
+        while (current.HasValue)
         {
-            if (bg.backdrop == backdrop)
+            Sprite sprite = FindBackground(current.Value);
+            if (sprite != null)
             {
-                backgroundImage.sprite = bg.sprite;
+                backgroundImage.sprite = sprite;
                 return;
             }
+            current = FallbackFor(current.Value);
         }
 
         Debug.LogWarning($"No background assigned for {backdrop}");
+    }
+
+    private Sprite FindBackground(Backdrop backdrop)
+    {
+        foreach (var bg in backgrounds)
+        {
+            if (bg.backdrop == backdrop && bg.sprite != null) return bg.sprite;
+        }
+        return null;
+    }
+
+    // Similar image to use when a backdrop has no sprite assigned.
+    private static Backdrop? FallbackFor(Backdrop backdrop)
+    {
+        switch (backdrop)
+        {
+            case Backdrop.CarDay: return Backdrop.CarEvening;
+            case Backdrop.HomeEvening: return Backdrop.Home;
+            case Backdrop.BusEvening: return Backdrop.BusDay;
+            case Backdrop.OutsideHomeEvening: return Backdrop.OutsideHome;
+            case Backdrop.OutsideWorkEvening: return Backdrop.OutsideWork;
+            default: return null;
+        }
     }
 
     // ================= AUDIO =================

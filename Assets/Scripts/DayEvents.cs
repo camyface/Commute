@@ -40,6 +40,17 @@ public static class DayEvents
         bool Roll(float chance) => UnityEngine.Random.value < chance;
         void Spend(int amount) => gs.ChangeMoney(-amount);
 
+        // ---------- Conversation variety ----------
+        // Picks a topic for today. Different every day of the week, and shuffled every playthrough.
+        int Topic(string key, int count)
+        {
+            int h = 0;
+            foreach (char c in key) h = unchecked(h * 31 + c);
+            int i = (h + gs.weekSeed + day) % count;
+            return i < 0 ? i + count : i;
+        }
+        string V(string key, params string[] options) => options[Topic(key, options.Length)];
+
         // ---------- Story state ----------
         bool HasDog() => HasP("HasDog");
         bool RouteCut() => day >= 4 && !HasP("PetitionSigned");
@@ -50,6 +61,14 @@ public static class DayEvents
         bool PowerOff() => HasP("PowerCut") && !HasP("PaidBill");
         int Kindness() => Count("VagrantKindness");
         bool IsRushHour() => gs.timeMinutes >= T(17) && gs.timeMinutes < T(18, 30);
+
+        // Your car: driving costs gas + parking. Leave it at the office and it's stuck there until tomorrow evening.
+        const int DriveCost = 8;
+        bool CarAtOffice() => Has("DroveToWork") || HasP("CarAtOffice");
+        // Only offered if you went out with them tonight (they're the designated driver).
+        bool CanRideWithCoworker() => Has("WentForDrinks") && Count("CoworkerFriendship") >= 2
+                                      && !HasP("BetrayedCoworker") && !HasP("CoworkerLaidOff");
+        void LeaveCarIfThere() { if (CarAtOffice()) gs.AddPermanentFlag("CarAtOffice"); }
         bool CookiesShow() => Count("NeighborFriendship") >= 2 && !HasP("GotCookies") && gs.IsBefore(20);
         bool ColdShoulderShows() => Count("NeighborFriendship") <= -2;
 
@@ -99,6 +118,72 @@ public static class DayEvents
         bool Standoff() => Has("Standoff");
         int Allies() => Count("ShowdownAllies");
         void AllyArrives() => gs.AddCount("ShowdownAllies");
+
+        // Today's topics. Each list has 5 entries so every weekday gets a different one.
+        var neighborTopics = new[]
+        {
+            (opener: "My tomatoes finally came in! Look at the size of this one.",
+             reply: "I'll save you a couple. Don't tell the squirrels."),
+            (opener: "Have you seen a gray cat around? Mr. Whiskers got out again last night.",
+             reply: "He always comes home when he's hungry. Just like my late husband did."),
+            (opener: "My grandson's visiting this weekend. He wants to be a 'content creator.' What even is that?",
+             reply: "I told him to get a real job. Like yours! What is it you do again?"),
+            (opener: "That construction down the block started at FIVE this morning. I've written three letters to the city.",
+             reply: "The fourth one goes out today. They'll learn."),
+            (opener: "I'm thinking about joining a bowling league. At my age! Can you imagine?",
+             reply: "Tuesday nights. I'm going to be terrible at it. It's going to be wonderful."),
+        };
+        var neighborTopic = neighborTopics[Topic("Neighbor", neighborTopics.Length)];
+
+        var busDriverTopics = new[]
+        {
+            (opener: "Morning! You're becoming a regular.", reply: rainy ? "Rain like this, half my route calls in sick." : "Enjoy the sunshine while it lasts!"),
+            (opener: "You know what I love about this job? Nobody talks to me. Except you, apparently.", reply: "Ha. Alright, you're okay."),
+            (opener: "Guy tried to pay with a gift card this morning. A GIFT CARD.", reply: "I let him on. It's too early for arguments."),
+            (opener: "Twenty-two years on this route. I've seen things.", reply: "One time, a goat. Don't ask."),
+            (opener: "My daughter just got into college. First in the family!", reply: "Thank you. I'm going to be broke, but I'm so proud."),
+        };
+        var busDriverTopic = busDriverTopics[Topic("BusDriver", busDriverTopics.Length)];
+
+        var lunches = new[]
+        {
+            (food: "tacos", cost: 12, invite: "A few of us are grabbing tacos. You in?", yes: "Knew you'd cave. Let's go!", no: "Suit yourself. More salsa for us."),
+            (food: "sushi", cost: 14, invite: "The sushi place on 3rd has a lunch special. Coming?", yes: "Yes! I'll teach you to use chopsticks properly.", no: "Your loss. Spicy tuna waits for no one."),
+            (food: "food truck lunch", cost: 10, invite: "The GOOD food truck is outside. Not the sad one. The good one.", yes: "Bring cash, they don't take cards.", no: "Fine. I'll eat your share."),
+            (food: "pho", cost: 12, invite: "It's a pho kind of day. You in?", yes: "Best broth in the city. Trust me.", no: "Your loss. More broth for me."),
+            (food: "free pizza", cost: 0, invite: "Someone left three pizzas in the break room from a client thing. FREE LUNCH.", yes: "Grab the pepperoni before marketing gets here.", no: "You're turning down FREE pizza? Who are you?"),
+        };
+        var lunch = lunches[Topic("Lunch", lunches.Length)];
+
+        var drinkPlans = new[]
+        {
+            (place: "the bar", invite: "A few of us are hitting the bar across the street. You coming?", yes: "That's what I like to hear!"),
+            (place: "karaoke", invite: "Karaoke night! I've been practicing. You're doing a duet with me.", yes: "Pick a song. Not a sad one."),
+            (place: "trivia night", invite: "Trivia night at O'Malley's. We need someone who knows sports. Or anything.", yes: "Team name is 'Quiz Khalifa.' Non-negotiable."),
+            (place: "bowling", invite: "Bowling! Two-dollar shoes and questionable nachos. You in?", yes: "Loser buys the next round."),
+            (place: "the rooftop bar", invite: "Rooftop bar has happy hour. The view alone is worth it.", yes: "Sunset drinks. Now we're talking."),
+        };
+        var drinks = drinkPlans[Topic("Drinks", drinkPlans.Length)];
+
+        var rides = new[]
+        {
+            (question: "So... honestly. How are you liking it here?",
+             answerA: "Honestly? It's rough.", replyA: "Same. Glad it's not just me.",
+             answerB: "It's great!", replyB: "Liar. But okay."),
+            (question: "Important question. Pineapple on pizza. Yes or no?",
+             answerA: "Absolutely yes", replyA: "Finally. Someone with taste.",
+             answerB: "That's a crime", replyB: "Get out of my car. ...Kidding. Mostly."),
+            (question: "Can I tell you something? I've been thinking about quitting to open a bakery.",
+             answerA: "Do it!", replyA: "You really think so? ...Okay. Okay! I'm doing it. Eventually.",
+             answerB: "Maybe keep the day job", replyB: "Yeah. Yeah, you're probably right."),
+            (question: "Do you ever feel like the boss has no idea what we actually do all day?",
+             answerA: "Every single day", replyA: "RIGHT? Thank you.",
+             answerB: "They're not so bad", replyB: "Wow. Okay, teacher's pet."),
+            (question: "Confession: I've never learned to swim. Is that weird?",
+             answerA: "I'll teach you", replyA: "Deal. But if I drown, it's on you.",
+             answerB: "How have you survived?", replyB: "Mostly by avoiding pools. And lakes. And boats."),
+        };
+        var ride = rides[Topic("Ride", rides.Length)];
 
         int PayCheck()
         {
@@ -326,9 +411,9 @@ public static class DayEvents
                     .Say(Neighbor, () =>
                         {
                             int f = Count("NeighborFriendship");
-                            if (f >= 1) return "Well, if it isn't my favorite early bird!";
                             if (f <= -1) return "Oh. Morning.";
-                            return "Good morning! Off to work already?";
+                            string hello = f >= 1 ? "There's my favorite early bird! " : "Good morning! ";
+                            return hello + neighborTopic.opener;
                         }, () =>
                         {
                             int f = Count("NeighborFriendship");
@@ -341,17 +426,26 @@ public static class DayEvents
                         gs.ChangeMood(1);
                         gs.AddTime(15);
                     })
-                        .Reply(Neighbor, () => HasDog()
-                            ? "And who's this handsome fellow? You adopted him? Oh, you big softie."
-                            : "You know, you're the first person on this street to actually stop and talk.", Happy)
-                        .Reply(Player, "I should get going, but this was nice.", Happy)
+                        .Reply(Neighbor, () =>
+                        {
+                            if (Count("NeighborFriendship") <= 0) return "Well. I suppose that was nice of you to stop.";
+                            string line = neighborTopic.reply;
+                            if (HasDog()) line += " And give that scruffy dog of yours a scratch from me!";
+                            return line;
+                        }, Happy)
+                        .Reply(Player, V("NeighborBye",
+                            "I should get going, but this was nice.",
+                            "Ha! Keep me posted.",
+                            "Gotta run. Same time tomorrow?",
+                            "You always make my morning better.",
+                            "I'll be rooting for you."), Happy)
                     .Choice("Wave and keep walking", () =>
                     {
                         gs.AddHistory("Brushed off the neighbor");
                         gs.AddCount("NeighborFriendship", -1);
                         gs.ChangeMood(-1);
                     })
-                        .Reply(Neighbor, "...Right. Busy, busy.", Sad),
+                        .Reply(Neighbor, V("NeighborSnub", "...Right. Busy, busy.", "Don't let me keep you.", "Hmph.", "Same to you, I'm sure.", "*turns back to the plants*"), Sad),
 
                 // ---------- Random street encounters ----------
                 new GameEvent("StrayDog")
@@ -361,7 +455,7 @@ public static class DayEvents
                     .Narrate(() => Count("DogTrust") >= 1
                         ? "The scruffy dog is back, tail already wagging when it sees you."
                         : "A scruffy dog with no collar starts following you down the sidewalk.")
-                    .Say(Dog, "*whines hopefully*", Sad)
+                    .Say(Dog, V("StrayDog", "*whines hopefully*", "*sits down right in front of you and offers a paw*", "*sniffs your shoes very seriously*", "*rolls onto its back, just in case*", "*tilts its head at you*"), Sad)
                     .Choice("Scratch behind its ears", () =>
                     {
                         gs.AddHistory("Petted the stray dog");
@@ -477,6 +571,7 @@ public static class DayEvents
                     {
                         string text = $"It's {gs.GetTimeString()}. How do you get to work?";
                         if (RouteCut()) text = "A sign is taped to the bus stop: ROUTE 9 MORNING SERVICE CANCELLED.\n" + text;
+                        if (HasP("CarAtOffice")) text += "\nYour car is still sitting in the office parking lot.";
                         if (!Afford(BusFare())) text += "\nYour wallet is empty.";
                         return text;
                     })
@@ -499,20 +594,34 @@ public static class DayEvents
                         gs.AddHistory("Took a taxi to work ($15)");
                         gs.AddFlag("TookTaxiToWork");
                         gs.AddTime(25);
-                    }, () => RouteCut() && Afford(15))
+                    }, () => RouteCut() && Afford(15) && HasP("CarAtOffice"))
+                    .Choice($"Drive (${DriveCost} gas & parking)", () =>
+                    {
+                        Spend(DriveCost);
+                        gs.AddHistory($"Drove to work (${DriveCost})");
+                        gs.AddFlag("DroveToWork");
+                        gs.AddTime(25);
+                    }, () => !HasP("CarAtOffice") && Afford(DriveCost))
                     .Choice("Walk", () =>
                     {
-                        gs.AddHistory("Walked to work");
                         gs.AddFlag("WalkedToWork");
                         gs.ChangeEnergy(Has("SkippedBreakfast") ? -2 : -1);
+                    }),
+
+                // Walking: the long safe way, or the shortcut past the warehouses.
+                new GameEvent("WalkRoute", () => rainy
+                        ? "Rain drips off the awnings. The main road takes an hour. The shortcut past the old warehouses would save almost half that."
+                        : "The main road takes an hour. The shortcut past the old warehouses would save almost half that.")
+                    .When(() => Has("WalkedToWork"))
+                    .Choice("Main road", () =>
+                    {
+                        gs.AddHistory("Walked to work");
                         gs.AddTime(60);
                     })
                     .Choice("Shortcut through the warehouses", () =>
                     {
                         gs.AddHistory("Cut through the warehouse district");
-                        gs.AddFlag("WalkedToWork");
                         gs.AddFlag("TookShortcut");
-                        gs.ChangeEnergy(-1);
                         gs.AddTime(35);
                     }),
 
@@ -557,8 +666,18 @@ public static class DayEvents
                         ? "Joe waves at you from the back of the bus, then shuffles over with his paper cup."
                         : "A man in a threadbare coat shuffles down the aisle, holding out a paper cup.")
                     .Say(Vagrant, () => Kindness() >= 1
-                        ? "Morning, friend. Don't suppose you've got a little something today?"
-                        : "Spare some change? Just trying to get a hot meal.", Sad)
+                        ? V("JoeBusFriend",
+                            "Morning, friend. Don't suppose you've got a little something today?",
+                            "Hey, it's my favorite commuter! Rough night. Could use a coffee.",
+                            "You know, I used to drive this route. Twelve years. Now look at me. Spare anything?",
+                            "Morning! I found a lucky penny. Didn't work. Got anything better?",
+                            "Heard the shelter might have beds opening up. Till then... anything helps.")
+                        : V("JoeBusStranger",
+                            "Spare some change? Just trying to get a hot meal.",
+                            "Anything helps, friend. Anything at all.",
+                            "Excuse me. I hate to ask. Could you spare a few bucks?",
+                            "Cold night last night. Just need enough for breakfast.",
+                            "I'm not gonna lie to you. I'm hungry. Can you help?"), Sad)
                     .Choice("Give him $5", () =>
                     {
                         Spend(5);
@@ -589,13 +708,13 @@ public static class DayEvents
                     .With(BusDriver, Happy)
                     .Say(BusDriver, () => FreeBus()
                         ? "Ooh, a Route 9 supporter pass! You're one of the good ones."
-                        : "Morning! You're becoming a regular.", Happy)
-                    .Choice("Chat about the weather", () =>
+                        : busDriverTopic.opener, Happy)
+                    .Choice("Chat for a bit", () =>
                     {
                         gs.AddHistory("Chatted with the bus driver");
                         gs.ChangeMood(1);
                     })
-                        .Reply(BusDriver, rainy ? "Rain like this, half my route calls in sick." : "Enjoy it while it lasts!")
+                        .Reply(BusDriver, busDriverTopic.reply)
                     .Choice("Just nod"),
 
                 // Second chance to sign.
@@ -615,7 +734,169 @@ public static class DayEvents
                     .Choice("Still no", () => gs.AddHistory("Refused the petition again"))
                         .Reply(Petitioner, "Suit yourself.", Annoyed),
 
+                // ---------- Driving (random) ----------
+                new GameEvent("QuietDrive", () => rainy
+                        ? "Wipers on full. The radio's playing something you half remember. Traffic crawls, but it moves."
+                        : V("QuietDrive",
+                            "Radio on, coffee in the cupholder. For twenty minutes, nobody needs anything from you.",
+                            "You hit every green light. Every single one. It feels like a sign.",
+                            "The morning DJ is doing a bit about pigeons. It's not funny. You laugh anyway.",
+                            "You sing along to a song you'd never admit you know. Loudly.",
+                            "Sun in your eyes, window cracked. Not a bad way to start the day."))
+                    .Group("CarMorning", 1.5f)
+                    .Scene(Backdrop.CarDay)
+                    .When(() => Has("DroveToWork"))
+                    .Choice("Keep driving"),
+
+                new GameEvent("TrafficJam", "An accident on the expressway. Three lanes, zero movement. Brake lights as far as you can see.")
+                    .Group("CarMorning")
+                    .Scene(Backdrop.CarDay)
+                    .When(() => Has("DroveToWork"))
+                    .Choice("Wait it out", () =>
+                    {
+                        gs.AddTime(25);
+                        gs.ChangeMood(-1);
+                        gs.AddHistory("Stuck in traffic for 25 minutes");
+                    })
+                    .Choice("Cut through side streets", () =>
+                    {
+                        if (Roll(0.5f))
+                        {
+                            gs.AddFlag("SideStreetsWorked");
+                            gs.AddTime(5);
+                            gs.AddHistory("Dodged a traffic jam through side streets");
+                        }
+                        else
+                        {
+                            gs.AddTime(35);
+                            gs.ChangeMood(-2);
+                            gs.AddHistory("Got lost in side streets trying to dodge traffic");
+                        }
+                    })
+                        .Reply(None, () => Has("SideStreetsWorked")
+                            ? "You weave through back streets and pop out right past the accident. Genius."
+                            : "Dead end. Another dead end. A school zone. You arrive later than if you'd just waited."),
+
+                new GameEvent("RoadRage")
+                    .Group("CarMorning")
+                    .Scene(Backdrop.CarDay)
+                    .When(() => Has("DroveToWork"))
+                    .Narrate("A pickup truck cuts you off, then honks at YOU. The driver leans out the window.")
+                    .Choice("Honk back and yell", () =>
+                    {
+                        gs.ChangeMood(-1);
+                        gs.AddHistory("Got into a shouting match in traffic");
+                    })
+                        .Reply(None, "It feels great for exactly two seconds. Then you're just a person yelling in a car.")
+                    .Choice("Let it go", () =>
+                    {
+                        gs.ChangeMood(1);
+                        gs.AddHistory("Let a rude driver go");
+                    })
+                        .Reply(None, "You take a deep breath. Not your problem. The truck gets stuck at the next light anyway."),
+
+                new GameEvent("LowGas", "The fuel light blinks on. You're running on fumes.")
+                    .Group("CarMorning")
+                    .Once()
+                    .Scene(Backdrop.CarDay)
+                    .When(() => Has("DroveToWork"))
+                    .Choice("Stop for gas ($10)", () =>
+                    {
+                        Spend(10);
+                        gs.AddTime(10);
+                        gs.AddHistory("Stopped for gas ($10)");
+                    }, () => Afford(10))
+                    .Choice("Risk it", () =>
+                    {
+                        if (Roll(0.35f))
+                        {
+                            gs.AddFlag("RanOutOfGas");
+                            gs.AddTime(45);
+                            gs.ChangeMood(-2);
+                            gs.AddHistory("Ran out of gas on the way to work");
+                        }
+                        else
+                        {
+                            gs.AddHistory("Made it to work on an empty tank");
+                        }
+                    })
+                        .Reply(None, () => Has("RanOutOfGas")
+                            ? "The engine sputters and dies two blocks from the office. You push. People watch."
+                            : "The needle is below E when you pull into the lot. Close enough."),
+
+                new GameEvent("FenderBender")
+                    .Group("CarMorning", 0.7f)
+                    .Once()
+                    .Scene(Backdrop.CarDay)
+                    .When(() => Has("DroveToWork"))
+                    .Narrate("The car ahead slams on its brakes. CRUNCH. A small dent in their bumper, a bigger one in yours.")
+                    .Choice("Exchange insurance info", () =>
+                    {
+                        gs.AddTime(25);
+                        gs.ChangeMood(-1);
+                        gs.AddHistory("Minor fender bender. Exchanged insurance.");
+                    })
+                    .Choice("Pay them cash to keep it quiet ($40)", () =>
+                    {
+                        Spend(40);
+                        gs.AddTime(5);
+                        gs.AddHistory("Paid off a fender bender ($40)");
+                    }, () => Afford(40)),
+
+                // ---------- Taxi ----------
+                new GameEvent("TaxiMorning", () => V("TaxiMorning",
+                        "The taxi driver hasn't stopped talking about his fantasy football team since you got in.",
+                        "The taxi smells like pine air freshener and ambition. The driver runs two yellow lights.",
+                        "Your driver is on a phone call in a language you don't speak. It sounds dramatic.",
+                        "The meter ticks up faster than seems legal. You watch the city blur past.",
+                        "The driver asks if you mind the radio. Before you answer, it's already on. Opera."))
+                    .When(() => Has("TookTaxiToWork"))
+                    .Scene(Backdrop.CarDay)
+                    .Choice("Watch the city go by"),
+
                 // ---------- Walking ----------
+                new GameEvent("StreetMusician")
+                    .Group("WalkMorning")
+                    .When(() => Has("WalkedToWork") && !Has("TookShortcut"))
+                    .Narrate(() => V("Busker",
+                        "A saxophone player on the corner is playing something slow and beautiful.",
+                        "A kid with a guitar is covering a song badly but with total confidence.",
+                        "A man with a keyboard and a tiny amp is playing movie themes.",
+                        "Someone's playing violin under the overpass. The echo is incredible.",
+                        "A drummer on upturned buckets has drawn a small crowd."))
+                    .Choice("Toss them $2", () =>
+                    {
+                        Spend(2);
+                        gs.ChangeMood(1);
+                        gs.AddHistory("Tipped a street musician ($2)");
+                    }, () => Afford(2))
+                    .Choice("Keep walking"),
+
+                new GameEvent("BreakfastCart")
+                    .Group("WalkMorning")
+                    .When(() => Has("WalkedToWork") && !Has("TookShortcut") && Has("SkippedBreakfast"))
+                    .Narrate("The smell from a breakfast burrito cart hits you. Your stomach growls loudly enough that the vendor laughs.")
+                    .Choice("Buy a burrito ($4)", () =>
+                    {
+                        Spend(4);
+                        gs.ChangeEnergy(2);
+                        gs.AddTime(5);
+                        gs.AddHistory("Bought a breakfast burrito ($4)");
+                    }, () => Afford(4))
+                    .Choice("Keep walking"),
+
+                new GameEvent("QuietWalk", () => rainy
+                        ? "Puddles everywhere. Your shoes are losing the battle."
+                        : V("QuietWalk",
+                            "The city is waking up: shutters rolling up, delivery trucks double-parked, pigeons everywhere.",
+                            "You pass the same guy walking the same three dogs. He nods. You nod. A tradition.",
+                            "The bakery on the corner is pulling bread out of the oven. You slow down just to smell it.",
+                            "Construction crews are already jackhammering. You walk a little faster.",
+                            "A cool breeze, a clear sky. Walking was the right call."))
+                    .Group("WalkMorning", 1.5f)
+                    .When(() => Has("WalkedToWork") && !Has("TookShortcut"))
+                    .Choice("Keep walking"),
+
                 new GameEvent("Rain", "Halfway there, the rain gets even heavier.")
                     .When(() => rainy && Has("WalkedToWork") && !Has("HasUmbrella"))
                     .Choice("Wait under an awning", () =>
@@ -718,7 +999,12 @@ public static class DayEvents
                             string line;
                             if (visits == 1) line = "Morning! What can I get you?";
                             else if (visits == 2) line = "Back again! Same as yesterday?";
-                            else line = "Your usual's already poured. Have a good one!";
+                            else line = V("BaristaRegular",
+                                "Your usual's already poured. Have a good one!",
+                                "Extra shot today. You look like you need it.",
+                                "I drew a little heart in the foam. Don't tell anyone.",
+                                "Rain or shine, huh? Here you go.",
+                                "My favorite customer! Don't tell the others.");
 
                             if (Has("GotWet")) line += " ...You might want a towel with that.";
                             return line;
@@ -741,7 +1027,7 @@ public static class DayEvents
                     .Say(Boss, () =>
                     {
                         int times = Count("TimesLate");
-                        if (times <= 1) return "Rough morning?";
+                        if (times <= 1) return V("BossLate1", "Rough morning?", "Glad you could join us.", "Nice of you to show up.", "Traffic, or alarm clock?", "We started without you.");
                         if (times == 2) return "That's twice this week.";
                         return "This is becoming a pattern. HR is asking questions.";
                     }, Annoyed)
@@ -821,7 +1107,12 @@ public static class DayEvents
 
                 new GameEvent("MorningWork", () => gs.energy <= 2
                         ? "You stare at your screen. The words swim. You are running on fumes."
-                        : "You settle in at your desk. Your inbox is overflowing.")
+                        : V("DeskMorning",
+                            "You settle in at your desk. Your inbox is overflowing.",
+                            "Forty-seven unread emails. Three of them are marked URGENT. One is a birthday card.",
+                            "Someone microwaved fish in the break room. The whole floor knows.",
+                            "The printer is jammed again. There's a sign on it that just says \"WHY\".",
+                            "Your desk chair has been swapped for a wobbly one. You have your suspicions."))
                     .Choice("Focus hard", () =>
                     {
                         gs.AddHistory("Powered through the morning");
@@ -957,19 +1248,25 @@ public static class DayEvents
                 new GameEvent("Lunch")
                     .When(() => gs.IsAfter(12))
                     .With(Coworker, Happy)
-                    .Say(Coworker, () => Count("CoworkerFriendship") >= 2
-                        ? "Saved you a spot, obviously. Tacos?"
-                        : "Hey, a few of us are grabbing tacos. You in?", Happy)
-                    .Choice("Join them ($12)", () =>
+                    .Say(Coworker, () => (Count("CoworkerFriendship") >= 2 ? "Saved you a spot, obviously. " : "") + lunch.invite, Happy)
+                    .Choice(lunch.cost > 0 ? $"Join them (${lunch.cost})" : "Join them (free!)", () =>
                     {
-                        Spend(12);
-                        gs.AddHistory("Had lunch with coworkers ($12)");
+                        Spend(lunch.cost);
+                        gs.AddHistory($"Had {lunch.food} with coworkers" + (lunch.cost > 0 ? $" (${lunch.cost})" : ""));
                         gs.AddCount("CoworkerFriendship");
                         gs.ChangeMood(2);
                         gs.ChangeEnergy(1);
                         gs.AddTime(60);
-                    }, () => Afford(12))
-                        .Reply(Coworker, "Knew you'd cave. Let's go!", Happy)
+                    }, () => Afford(lunch.cost))
+                        .Reply(Coworker, lunch.yes, Happy)
+                        .Reply(Coworker, () => day == 4
+                            ? "*lowers voice* Okay, real talk. Everyone's saying there are layoffs coming. Tomorrow."
+                            : V("LunchGossip",
+                                "Did you hear the boss's car got towed yesterday? Best day of my life.",
+                                "Accounting and marketing are at war over the thermostat again.",
+                                "I think the new intern is secretly a genius. Or a spy.",
+                                "Somebody keeps stealing my yogurt. I'm setting a trap.",
+                                "I've been learning guitar. I know three chords. That's enough for most songs, right?"), Happy)
                     .Choice("Let them cover you", () =>
                     {
                         gs.AddHistory("Your coworker paid for your lunch");
@@ -977,7 +1274,7 @@ public static class DayEvents
                         gs.ChangeMood(2);
                         gs.ChangeEnergy(1);
                         gs.AddTime(60);
-                    }, () => !Afford(12) && Count("CoworkerFriendship") >= 2)
+                    }, () => lunch.cost > 0 && !Afford(lunch.cost) && Count("CoworkerFriendship") >= 2)
                         .Reply(Coworker, "Don't even worry about it. You'd do the same.", Happy)
                     .Choice("Eat at your desk", () =>
                     {
@@ -986,7 +1283,7 @@ public static class DayEvents
                         gs.ChangeEnergy(-1);
                         gs.AddTime(30);
                     })
-                        .Reply(Coworker, "Suit yourself. More salsa for us."),
+                        .Reply(Coworker, lunch.no),
 
                 FiredCheck("FiredAfterLunch"),
 
@@ -1366,19 +1663,19 @@ public static class DayEvents
                             return "It's Friday! And drinks are on me tonight. I owe you, remember?";
                         if (isFriday)
                             return "It's Friday! The whole office is heading to the bar. You're coming.";
-                        return "A few of us are hitting the bar across the street. You coming?";
+                        return drinks.invite;
                     }, Happy)
                     .Choice("Join them ($15)", () =>
                     {
                         Spend(15);
-                        gs.AddHistory("Went for drinks with coworkers ($15)");
+                        gs.AddHistory($"Went to {drinks.place} with coworkers ($15)");
                         gs.AddFlag("WentForDrinks");
                         gs.AddCount("CoworkerFriendship");
                         gs.ChangeMood(isFriday ? 3 : 2);
                         gs.ChangeEnergy(-1);
                         gs.AddTime(90);
                     }, () => Afford(15) && !(isFriday && (HasP("CoworkerOwesYou") || HasP("CoworkerSacrifice"))))
-                        .Reply(Coworker, "That's what I like to hear!", Happy)
+                        .Reply(Coworker, drinks.yes, Happy)
                     .Choice("Join them (they're buying)", () =>
                     {
                         gs.AddHistory("Your coworker bought you drinks");
@@ -1425,7 +1722,12 @@ public static class DayEvents
                     .When(() => !HasP("VagrantHoused"))
                     .With(Vagrant, Sad)
                     .Narrate(() => $"{(Kindness() >= 1 ? "Joe" : "A man in a threadbare coat")} is huddled in the office doorway, trying to stay {(rainy ? "dry" : "warm")}.")
-                    .Say(Vagrant, "Evening. Cold one tonight.", Sad)
+                    .Say(Vagrant, V("JoeDoorway",
+                        "Evening. Cold one tonight.",
+                        "Security guard keeps moving me along. This doorway's the only one with an overhang.",
+                        "Long day? Yeah. Me too, in a way.",
+                        "You work in there? Must be nice. Warm, anyway.",
+                        "Saw a guy drop a whole sandwich today. Didn't even look back. Best lunch I've had all week."), Sad)
                     .Choice("Give him $10", () =>
                     {
                         Spend(10);
@@ -1501,6 +1803,8 @@ public static class DayEvents
                     {
                         if (Has("AcceptedThugJob"))
                             return "The package under your arm is heavier than it looks. The warehouse is ten minutes away.";
+                        if (CarAtOffice() && Has("WentForDrinks"))
+                            return $"It's {gs.GetTimeString()}. You've had a few drinks, so the car stays in the office lot tonight. How do you get home?";
                         return IsRushHour()
                             ? $"It's {gs.GetTimeString()}, peak rush hour. How do you get home?"
                             : $"It's {gs.GetTimeString()}. How do you get home?";
@@ -1508,41 +1812,54 @@ public static class DayEvents
                     .Choice("Head to the warehouse", () =>
                     {
                         gs.AddHistory("Headed to the warehouse with the package");
+                        LeaveCarIfThere();
                         gs.AddTime(10);
                     }, () => Has("AcceptedThugJob"))
                     .Choice("Take the bus ($3)", () =>
                     {
                         Spend(3);
                         gs.AddFlag("TookBusHome");
+                        LeaveCarIfThere();
                         gs.AddHistory(IsRushHour() ? "Took a packed rush-hour bus home ($3)" : "Took the bus home ($3)");
                         gs.AddTime(IsRushHour() ? 65 : 40);
                     }, () => !Has("AcceptedThugJob") && !FreeBus() && Afford(3))
                     .Choice("Take the bus (free pass)", () =>
                     {
                         gs.AddFlag("TookBusHome");
+                        LeaveCarIfThere();
                         gs.AddHistory("Took the bus home on your free pass");
                         gs.AddTime(IsRushHour() ? 65 : 40);
                     }, () => !Has("AcceptedThugJob") && FreeBus())
                     .Choice("Walk", () =>
                     {
                         gs.AddFlag("WalkedHome");
+                        LeaveCarIfThere();
                         gs.AddHistory("Walked home");
                         gs.ChangeEnergy(-1);
                         gs.AddTime(60);
                     }, () => !Has("AcceptedThugJob"))
+                    .Choice("Drive home", () =>
+                    {
+                        gs.AddFlag("DroveHome");
+                        gs.RemovePermanentFlag("CarAtOffice");
+                        gs.AddHistory("Drove home");
+                        gs.AddTime(IsRushHour() ? 40 : 25);
+                    }, () => !Has("AcceptedThugJob") && CarAtOffice() && !Has("WentForDrinks"))
                     .Choice("Ride with your coworker", () =>
                     {
                         gs.AddFlag("RodeWithCoworker");
+                        LeaveCarIfThere();
                         gs.AddHistory("Got a ride home from your coworker");
                         gs.AddTime(25);
-                    }, () => !Has("AcceptedThugJob") && Count("CoworkerFriendship") >= 2)
+                    }, () => !Has("AcceptedThugJob") && CanRideWithCoworker() && (!CarAtOffice() || Has("WentForDrinks")))
                     .Choice("Take a taxi ($25)", () =>
                     {
                         Spend(25);
                         gs.AddFlag("TookTaxiHome");
+                        LeaveCarIfThere();
                         gs.AddHistory("Took a taxi home ($25)");
                         gs.AddTime(20);
-                    }, () => !Has("AcceptedThugJob") && Count("CoworkerFriendship") < 2 && Afford(25)),
+                    }, () => !Has("AcceptedThugJob") && !CanRideWithCoworker() && Afford(25) && (!CarAtOffice() || Has("WentForDrinks"))),
 
                 // ---------- The warehouse job ----------
                 new GameEvent("VagrantWarning")
@@ -1677,18 +1994,59 @@ public static class DayEvents
                     .When(() => Has("RodeWithCoworker"))
                     .Scene(Backdrop.CarEvening)
                     .With(Coworker, Happy)
-                    .Narrate("Your coworker's car smells like air freshener and old fries.")
-                    .Say(Coworker, "So... honestly. How are you liking it here?", Happy)
-                    .Choice("Honestly? It's rough.", () =>
+                    .Narrate("Your coworker stuck to soda all night, so they're driving.")
+                    .Narrate(V("RideNarration",
+                        "Your coworker's car smells like air freshener and old fries.",
+                        "Your coworker's car has a dashboard hula girl and three empty coffee cups.",
+                        "Your coworker blasts 90s pop the second the engine starts.",
+                        "Your coworker drives exactly the speed limit. Exactly.",
+                        "There's a dog-hair-covered blanket on the passenger seat. \"Sorry, that's Biscuit's seat.\""))
+                    .Say(Coworker, ride.question, Happy)
+                    .Choice(ride.answerA, () =>
                     {
                         gs.AddCount("CoworkerFriendship");
                         gs.ChangeMood(1);
                     })
-                        .Reply(Coworker, "Same. Glad it's not just me. Same time tomorrow?", Happy)
-                    .Choice("It's great!", () => gs.ChangeMood(1))
-                        .Reply(Coworker, "Liar. But okay.", Happy),
+                        .Reply(Coworker, ride.replyA, Happy)
+                    .Choice(ride.answerB, () => gs.ChangeMood(1))
+                        .Reply(Coworker, ride.replyB, Happy),
 
-                new GameEvent("TaxiRide", "The meter ticks up faster than you'd like. City lights blur past the window.")
+                new GameEvent("DriveHomeQuiet", () => IsRushHour()
+                        ? "Rush hour. Bumper to bumper. You memorize the license plate in front of you."
+                        : V("DriveHome",
+                            "The streetlights flick on one by one as you drive. The radio plays something slow.",
+                            "You take the long way home, just because you can.",
+                            "Red light. You catch your reflection in the rearview mirror. You look tired.",
+                            "A podcast about ancient Rome keeps you company. You learn a surprising amount about aqueducts.",
+                            "The city glows orange in the dusk. For a moment, it's almost pretty."))
+                    .Group("DriveHome")
+                    .When(() => Has("DroveHome"))
+                    .Scene(Backdrop.CarEvening)
+                    .Choice("Keep driving", () => gs.ChangeEnergy(1)),
+
+                new GameEvent("ParkingTicket")
+                    .Group("DriveHome", 0.6f)
+                    .Once()
+                    .When(() => Has("DroveHome"))
+                    .Scene(Backdrop.CarEvening)
+                    .Narrate("There's an orange envelope tucked under your wiper. PARKING VIOLATION: $25.")
+                    .Choice("Pay it ($25)", () =>
+                    {
+                        Spend(25);
+                        gs.AddHistory("Paid a parking ticket ($25)");
+                    }, () => Afford(25))
+                    .Choice("Shove it in the glovebox", () =>
+                    {
+                        gs.ChangeMood(-1);
+                        gs.AddHistory("Ignored a parking ticket");
+                    }),
+
+                new GameEvent("TaxiRide", () => V("TaxiEvening",
+                        "The meter ticks up faster than you'd like. City lights blur past the window.",
+                        "Your driver insists on telling you his theory about why pigeons are government drones.",
+                        "The taxi's back seat has a tiny TV playing the same ad on loop. You'll hear that jingle in your sleep.",
+                        "The driver takes a turn so fast your stomach stays at the last intersection.",
+                        "Your driver hums along to the radio. It's weirdly soothing."))
                     .When(() => Has("TookTaxiHome"))
                     .Scene(Backdrop.CarEvening)
                     .Choice("Watch the lights", () => gs.ChangeEnergy(1)),
@@ -1714,7 +2072,9 @@ public static class DayEvents
                 new GameEvent("Showdown")
                     .When(() => isFriday)
                     .With(Thug, Annoyed)
-                    .Narrate("You're half a block from home when a shape peels away from the shadows and blocks the sidewalk.")
+                    .Narrate(() => Has("DroveHome") || Has("TookTaxiHome") || Has("RodeWithCoworker")
+                        ? "You step out of the car in front of your building. As it pulls away, a shape peels away from the shadows."
+                        : "You're half a block from home when a shape peels away from the shadows and blocks the sidewalk.")
                     .Narrate(() => ThugIntro())
                     .Say(Thug, () => ThugDemand(), Annoyed)
                     .Choice("Stand your ground", () =>
@@ -2013,7 +2373,12 @@ public static class DayEvents
                 new GameEvent("FeedDog")
                     .When(HasDog)
                     .With(Dog, Sad)
-                    .Say(Dog, "*stares at the empty bowl. Then at you. Then at the bowl.*", Sad)
+                    .Say(Dog, V("DogDinner",
+                        "*stares at the empty bowl. Then at you. Then at the bowl.*",
+                        "*drops the bowl at your feet with a loud clang*",
+                        "*sits perfectly still, doing his very best 'good boy' face*",
+                        "*nudges the empty bowl across the kitchen floor toward you*",
+                        "*has clearly been waiting by the door. Now he's waiting by the bowl.*"), Sad)
                     .Choice("Feed it ($5)", () =>
                     {
                         Spend(5);
