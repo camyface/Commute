@@ -1049,12 +1049,39 @@ MonoBehaviour:
   ambientAudioSource: {fileID: 1259405425}
   specialAudioSource: {fileID: 1234410097}
   ambientAudioClips:
-  - {fileID: 8300000, guid: fbe376cae2adef54da4b340f50ef705f, type: 3}
-  - {fileID: 8300000, guid: 9998cc2dae204cc4495ddc443e4cc4a6, type: 3}
-  - {fileID: 8300000, guid: 732cb33eac3864b4ca5e1edeccd963c3, type: 3}
-  specialAudioClips:
-  - id: 
+  - backdrop: 0
+    clip: {fileID: 8300000, guid: fbe376cae2adef54da4b340f50ef705f, type: 3}
+  - backdrop: 1
+    clip: {fileID: 8300000, guid: fbe376cae2adef54da4b340f50ef705f, type: 3}
+  - backdrop: 2
+    clip: {fileID: 8300000, guid: 9998cc2dae204cc4495ddc443e4cc4a6, type: 3}
+  - backdrop: 3
+    clip: {fileID: 8300000, guid: fbe376cae2adef54da4b340f50ef705f, type: 3}
+  - backdrop: 4
+    clip: {fileID: 8300000, guid: 732cb33eac3864b4ca5e1edeccd963c3, type: 3}
+  - backdrop: 5
+    clip: {fileID: 8300000, guid: 9998cc2dae204cc4495ddc443e4cc4a6, type: 3}
+  - backdrop: 6
+    clip: {fileID: 8300000, guid: fbe376cae2adef54da4b340f50ef705f, type: 3}
+  - backdrop: 7
+    clip: {fileID: 8300000, guid: fbe376cae2adef54da4b340f50ef705f, type: 3}
+  - backdrop: 8
+    clip: {fileID: 8300000, guid: 9998cc2dae204cc4495ddc443e4cc4a6, type: 3}
+  - backdrop: 9
+    clip: {fileID: 8300000, guid: 9998cc2dae204cc4495ddc443e4cc4a6, type: 3}
+  - backdrop: 10
+    clip: {fileID: 8300000, guid: 9998cc2dae204cc4495ddc443e4cc4a6, type: 3}
+  - backdrop: 11
+    clip: {fileID: 8300000, guid: 732cb33eac3864b4ca5e1edeccd963c3, type: 3}
+  - backdrop: 12
     clip: {fileID: 0}
+  - backdrop: 13
+    clip: {fileID: 0}
+  - backdrop: 14
+    clip: {fileID: 8300000, guid: fbe376cae2adef54da4b340f50ef705f, type: 3}
+  specialAudioClips:
+  - id: Alarm
+    clip: {fileID: 8300000, guid: d137184fce783c74099098c9314d2f97, type: 3}
   radiantEventChance: 0.1
   summaryPanel: {fileID: 1392781514}
   summaryText: {fileID: 115475274}

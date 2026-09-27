@@ -83,7 +83,13 @@ public class EventUI : MonoBehaviour
     [Header("Sounds")]
     public AudioSource ambientAudioSource;
     public AudioSource specialAudioSource;
-    public AudioClip[] ambientAudioClips;   // one per Location, in enum order
+    [Serializable]
+    public class AmbientAudioClip
+    {
+        public Backdrop backdrop;   // one per Backdrop enum value
+        public AudioClip clip;
+    }
+    public List<AmbientAudioClip> ambientAudioClips;
 
     // Named sound effects. A clip whose id matches an event id (e.g. "Alarm", "PoliceRaid")
     // plays automatically when that event starts. Others can be played with PlaySpecialAudio("id").
@@ -315,7 +321,7 @@ public class EventUI : MonoBehaviour
         if (ev.once) gs.AddPermanentFlag(ev.SeenFlag);
 
         SetBackground(ev.GetBackdrop() ?? stage.backdrop);
-        SetAudio(stage.location);
+        SetAudio(ev.GetBackdrop() ?? stage.backdrop);
         PlaySpecialAudio(ev.id, warnIfMissing: false);   // plays only if a clip has this event's id
 
         // Start with whoever is "present", or nobody.
@@ -547,25 +553,26 @@ public class EventUI : MonoBehaviour
 
     // Plays the ambient loop for a location. Clips are matched by enum order:
     // 0 Home, 1 OutsideHome, 2 CommuteToWork, 3 OutsideWork, 4 Work, 5 CommuteHome
-    private void SetAudio(Location location)
+    private void SetAudio(Backdrop backdrop)
     {
-        if (ambientAudioSource == null || ambientAudioClips == null || ambientAudioClips.Length == 0) return;
+        if (ambientAudioSource == null || ambientAudioClips == null || ambientAudioClips.Count == 0) return;
 
-        int index = (int)location;
+        int index = (int)backdrop;
 
-        if (index < 0 || index >= ambientAudioClips.Length || ambientAudioClips[index] == null)
+        var audioClip = ambientAudioClips.Find(c => c.backdrop == backdrop);
+        if (audioClip == null || audioClip.clip == null)
         {
-            Debug.LogWarning($"No ambient audio clip assigned for {location} ({index})");
+            Debug.LogWarning($"No ambient audio clip assigned for {backdrop}");
             return;
         }
 
         // Already playing this location's clip: keep it going without restarting.
-        if (ambientAudioSource.clip == ambientAudioClips[index] && ambientAudioSource.isPlaying)
+        if (ambientAudioSource.clip == audioClip.clip && ambientAudioSource.isPlaying)
             return;
 
-        Debug.Log($"Playing audio for {location}: {ambientAudioClips[index].name} ({index})");
+        Debug.Log($"Playing audio for {backdrop}: {audioClip.clip.name}");
         ambientAudioSource.Stop();
-        ambientAudioSource.clip = ambientAudioClips[index];
+        ambientAudioSource.clip = audioClip.clip;
         ambientAudioSource.Play();
     }
 
