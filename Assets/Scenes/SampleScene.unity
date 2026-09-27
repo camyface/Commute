@@ -1458,38 +1458,48 @@ MonoBehaviour:
   ambientAudioClips:
   - backdrop: 0
     audioClip: {fileID: 8300000, guid: 9e79e62cdaf120043894aa3a1da7cb12, type: 3}
+  - backdrop: 1
+    audioClip: {fileID: 8300000, guid: 9e79e62cdaf120043894aa3a1da7cb12, type: 3}
+  - backdrop: 2
+    audioClip: {fileID: 8300000, guid: 5e28702980ef98240ad066bb7441a639, type: 3}
+  - backdrop: 3
+    audioClip: {fileID: 8300000, guid: 9e79e62cdaf120043894aa3a1da7cb12, type: 3}
+  - backdrop: 4
+    audioClip: {fileID: 8300000, guid: 732cb33eac3864b4ca5e1edeccd963c3, type: 3}
+  - backdrop: 5
+    audioClip: {fileID: 8300000, guid: 5e28702980ef98240ad066bb7441a639, type: 3}
+  - backdrop: 6
+    audioClip: {fileID: 8300000, guid: c2c2a34240b62a34e940523f03785114, type: 3}
+  - backdrop: 7
+    audioClip: {fileID: 8300000, guid: c2c2a34240b62a34e940523f03785114, type: 3}
+  - backdrop: 8
+    audioClip: {fileID: 8300000, guid: 3464c882df7f44143b1f58577076f97d, type: 3}
+  - backdrop: 9
+    audioClip: {fileID: 8300000, guid: 3464c882df7f44143b1f58577076f97d, type: 3}
+  - backdrop: 10
+    audioClip: {fileID: 8300000, guid: 9998cc2dae204cc4495ddc443e4cc4a6, type: 3}
+  - backdrop: 11
+    audioClip: {fileID: 8300000, guid: 732cb33eac3864b4ca5e1edeccd963c3, type: 3}
+  - backdrop: 12
+    audioClip: {fileID: 8300000, guid: 6895dd81a798f524cad370648333146b, type: 3}
+  - backdrop: 13
+    audioClip: {fileID: 8300000, guid: 2d9f6b83d4d743c41a80bf5db587bf7d, type: 3}
   - backdrop: 14
     audioClip: {fileID: 8300000, guid: c2c2a34240b62a34e940523f03785114, type: 3}
   - backdrop: 15
     audioClip: {fileID: 8300000, guid: 9998cc2dae204cc4495ddc443e4cc4a6, type: 3}
-  - backdrop: 10
-    audioClip: {fileID: 8300000, guid: 9998cc2dae204cc4495ddc443e4cc4a6, type: 3}
-  - backdrop: 12
-    audioClip: {fileID: 8300000, guid: 6895dd81a798f524cad370648333146b, type: 3}
-  - backdrop: 4
-    audioClip: {fileID: 8300000, guid: 732cb33eac3864b4ca5e1edeccd963c3, type: 3}
-  - backdrop: 2
-    audioClip: {fileID: 8300000, guid: 5e28702980ef98240ad066bb7441a639, type: 3}
-  - backdrop: 5
-    audioClip: {fileID: 8300000, guid: 5e28702980ef98240ad066bb7441a639, type: 3}
-  - backdrop: 3
-    audioClip: {fileID: 8300000, guid: 5e28702980ef98240ad066bb7441a639, type: 3}
-  - backdrop: 7
-    audioClip: {fileID: 8300000, guid: 5e28702980ef98240ad066bb7441a639, type: 3}
-  - backdrop: 13
-    audioClip: {fileID: 8300000, guid: 2d9f6b83d4d743c41a80bf5db587bf7d, type: 3}
-  - backdrop: 0
-    audioClip: {fileID: 0}
-  - backdrop: 0
-    audioClip: {fileID: 0}
-  - backdrop: 0
-    audioClip: {fileID: 0}
-  - backdrop: 0
-    audioClip: {fileID: 0}
   ambientFadeTime: 0.6
   specialAudioClips:
   - id: Alarm
     clip: {fileID: 8300000, guid: d137184fce783c74099098c9314d2f97, type: 3}
+  - id: PoliceRaid
+    clip: {fileID: 8300000, guid: cae1b28444df8344eb813c745b5785ca, type: 3}
+  - id: DogOnDoorstep
+    clip: {fileID: 8300000, guid: 74dcbe4d8a2656341bfff405e58d88e4, type: 3}
+  - id: ShowdownDog
+    clip: {fileID: 8300000, guid: 62c70daaf4b6115438cbca415aeba4ba, type: 3}
+  - id: StrayDog
+    clip: {fileID: 8300000, guid: 74dcbe4d8a2656341bfff405e58d88e4, type: 3}
   radiantEventChance: 0.1
   feedbackText: {fileID: 1395955810}
   feedbackDuration: 2.5
