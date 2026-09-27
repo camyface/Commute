@@ -39,6 +39,7 @@ public class GameState : MonoBehaviour
     public int bedTimeMinutes;
     public Location currentLocation;
     public bool weekOver;          // true = the week ended early (e.g. fired)
+    public int weekSeed;           // rolled each new week so conversations differ between playthroughs
     public string weekOverReason;
 
     // Cleared every morning (e.g. "AteBreakfast", "LateToWork").
@@ -80,6 +81,7 @@ public class GameState : MonoBehaviour
         currentLocation = Location.Home;
         weekOver = false;
         weekOverReason = null;
+        weekSeed = Random.Range(0, 10000);
 
         flags.Clear();
         permanentFlags.Clear();

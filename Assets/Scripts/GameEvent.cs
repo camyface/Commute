@@ -30,7 +30,8 @@ public enum Backdrop
     MeetingRoom,
     Warehouse,
     JailCell,
-    HomeEvening     // added last so existing Inspector entries don't shift
+    HomeEvening,    // added last so existing Inspector entries don't shift
+    CarDay          // optional: falls back to CarEvening if no sprite is assigned
 }
 
 // Everyone who can talk. None = narration, Player = you.
