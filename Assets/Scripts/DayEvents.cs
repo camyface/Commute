@@ -320,7 +320,7 @@ public static class DayEvents
                     .Group("HomeMorning", 2f)
                     .Once()
                     .When(() => day <= 3)
-                    .Narrate("An envelope is waiting under your door: ELECTRICITY BILL — $30. FINAL NOTICE.")
+                    .Narrate("An envelope is waiting under your door: ELECTRICITY BILL: $30. FINAL NOTICE.")
                     .Choice("Pay it now ($30)", () =>
                     {
                         Spend(30);

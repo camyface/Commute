@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Text;
 using TMPro;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 using UnityEngine.UI;
 
 // Pairs a backdrop with its background image (filled in from the Inspector).
@@ -48,6 +49,7 @@ public class CharacterData
 //   ChoiceButton2  -> EventUI.ChooseOption(1)
 //   ChoiceButton3  -> EventUI.ChooseOption(2)
 //   SummaryButton  -> EventUI.SummaryButtonPressed()
+//   MainMenuButton -> EventUI.GoToMainMenu()      (on the summary panel)
 public class EventUI : MonoBehaviour
 {
     [Header("Event Panel")]
@@ -90,6 +92,8 @@ public class EventUI : MonoBehaviour
         public AudioClip audioClip;
     }
     public List<AmbientAudioClip> ambientAudioClips;
+    [Tooltip("Seconds to fade between ambient loops.")]
+    public float ambientFadeTime = 0.6f;
 
     // Named sound effects. A clip whose id matches an event id (e.g. "Alarm", "PoliceRaid")
     // plays automatically when that event starts. Others can be played with PlaySpecialAudio("id").
@@ -130,6 +134,10 @@ public class EventUI : MonoBehaviour
     [Tooltip("Clock color when you're about to be late for work.")]
     public Color lateClockColor = new Color(1f, 0.35f, 0.35f, 1f);
 
+    [Header("Menus")]
+    [Tooltip("Title screen scene name. It must be in the Build Profiles scene list.")]
+    public string menuSceneName = "MenuScene";
+
     [Header("Summary Panel")]
     public GameObject summaryPanel;
     public TMP_Text summaryText;
@@ -163,6 +171,12 @@ public class EventUI : MonoBehaviour
     private bool characterShake, playerShake;
     private Vector3 characterBaseScale = Vector3.one, playerBaseScale = Vector3.one;
     private Vector2 characterBasePos, playerBasePos;
+
+    // Ambient crossfade state
+    private float ambientBaseVolume = 1f;
+    private AudioClip pendingAmbient;
+    private bool ambientSwitching;
+    private readonly HashSet<Backdrop> warnedAudio = new HashSet<Backdrop>();
 
     // Stats before a choice, to show what changed.
     private struct StatSnapshot
@@ -202,6 +216,9 @@ public class EventUI : MonoBehaviour
         if (shakeTarget == null && eventPanel != null) shakeTarget = eventPanel.GetComponent<RectTransform>();
         if (shakeTarget != null) shakeBasePos = shakeTarget.anchoredPosition;
         if (timeText != null) timeTextBaseColor = timeText.color;
+
+        if (ambientAudioSource != null) ambientBaseVolume = ambientAudioSource.volume;
+        if (GameSettings.HasTextSpeed) charsPerSecond = GameSettings.TextSpeed;
 
         if (feedbackText != null) feedbackText.text = "";
         if (timerBar != null) timerBar.gameObject.SetActive(false);
@@ -283,6 +300,8 @@ public class EventUI : MonoBehaviour
         AnimatePortrait(characterImage, ref characterPunch, characterBaseScale, characterBasePos, characterShake, dt);
         AnimatePortrait(playerImage, ref playerPunch, playerBaseScale, playerBasePos, playerShake, dt);
 
+        UpdateAmbientFade(dt);
+
         // Clock pulses red when you're about to be late for work.
         if (timeText != null)
         {
@@ -296,6 +315,8 @@ public class EventUI : MonoBehaviour
 
     public void ChooseOption(int option)
     {
+        if (PauseMenu.IsPaused) return;
+
         // Text still typing: the first click just finishes it.
         if (typing)
         {
@@ -344,6 +365,8 @@ public class EventUI : MonoBehaviour
     // "Next day" after days 1-4, "Play again" after day 5.
     public void SummaryButtonPressed()
     {
+        if (PauseMenu.IsPaused) return;
+
         if (GameState.Instance.IsLastDay)
         {
             StartWeek();
@@ -353,6 +376,13 @@ public class EventUI : MonoBehaviour
             GameState.Instance.StartNewDay();
             StartDay();
         }
+    }
+
+    // Wire the summary panel's "Main Menu" button (and the pause menu's Quit) to this.
+    public void GoToMainMenu()
+    {
+        PauseMenu.ForceUnpause();
+        SceneManager.LoadScene(menuSceneName);
     }
 
     // ================= WEEK / DAY FLOW =================
@@ -880,30 +910,61 @@ public class EventUI : MonoBehaviour
 
     // ================= AUDIO =================
 
-    // Plays the ambient loop for a location. Clips are matched by enum order:
-    // 0 Home, 1 OutsideHome, 2 CommuteToWork, 3 OutsideWork, 4 Work, 5 CommuteHome
+    // Plays the ambient loop for a background. If that background has no clip, tries a similar one
+    // (HomeEvening -> Home, MeetingRoom -> Work...). If nothing fits, fades to silence.
     private void SetAudio(Backdrop backdrop)
     {
-        if (ambientAudioSource == null || ambientAudioClips == null || ambientAudioClips.Count == 0) return;
+        if (ambientAudioSource == null || ambientAudioClips == null) return;
 
-        int index = (int)backdrop;
-
-        var audioClip = ambientAudioClips.Find(c => c.backdrop == backdrop);
-
-        if(audioClip == null || audioClip.audioClip == null)
+        AudioClip clip = null;
+        Backdrop? current = backdrop;
+        while (current.HasValue && clip == null)
         {
-            Debug.LogWarning($"No ambient audio clip assigned for {backdrop}");
-            return;
+            var entry = ambientAudioClips.Find(c => c.backdrop == current.Value);
+            if (entry != null) clip = entry.audioClip;
+            current = AudioFallbackFor(current.Value);
         }
 
-        // Already playing this location's clip: keep it going without restarting.
-        if (ambientAudioSource.clip == audioClip.audioClip && ambientAudioSource.isPlaying)
+        if (clip == null && warnedAudio.Add(backdrop))
+            Debug.Log($"No ambient audio for {backdrop} (or its fallbacks). Playing silence there.");
+
+        // Already playing (or heading to) this clip: leave it alone.
+        if (ambientSwitching ? pendingAmbient == clip : (ambientAudioSource.clip == clip && (clip == null || ambientAudioSource.isPlaying)))
             return;
 
-        Debug.Log($"Playing audio for {backdrop}: {audioClip.audioClip.name}");
-        ambientAudioSource.Stop();
-        ambientAudioSource.clip = audioClip.audioClip;
-        ambientAudioSource.Play();
+        pendingAmbient = clip;
+        ambientSwitching = true;
+    }
+
+    // Fades the old loop out, swaps, and fades the new one in.
+    private void UpdateAmbientFade(float dt)
+    {
+        if (ambientAudioSource == null) return;
+        float step = ambientFadeTime > 0f ? dt / ambientFadeTime * ambientBaseVolume : ambientBaseVolume;
+
+        if (ambientSwitching)
+        {
+            ambientAudioSource.volume = Mathf.Max(0f, ambientAudioSource.volume - step);
+            if (ambientAudioSource.volume <= 0f || !ambientAudioSource.isPlaying)
+            {
+                ambientAudioSource.Stop();
+                ambientAudioSource.clip = pendingAmbient;
+                if (pendingAmbient != null) ambientAudioSource.Play();
+                ambientAudioSource.volume = 0f;
+                ambientSwitching = false;
+            }
+        }
+        else if (ambientAudioSource.clip != null && ambientAudioSource.volume < ambientBaseVolume)
+        {
+            ambientAudioSource.volume = Mathf.Min(ambientBaseVolume, ambientAudioSource.volume + step);
+        }
+    }
+
+    // Audio can borrow from more places than images can (a meeting room sounds like the office).
+    private static Backdrop? AudioFallbackFor(Backdrop backdrop)
+    {
+        if (backdrop == Backdrop.MeetingRoom) return Backdrop.Work;
+        return FallbackFor(backdrop);
     }
 
     // Plays a one-shot sound effect over the ambient audio.
@@ -1068,7 +1129,7 @@ public class EventUI : MonoBehaviour
 
         sb.AppendLine();
         sb.AppendLine($"<b>Endings found: {found} / {DayEvents.AllEndingTitles.Length}</b>");
-        sb.AppendLine(string.Join("  ·  ", names));
+        sb.AppendLine(string.Join("  |  ", names));
     }
 
     // Right-click the EventUI component in the Inspector to wipe the gallery while testing.
