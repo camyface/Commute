@@ -29,7 +29,8 @@ public enum Backdrop
     CarEvening,
     MeetingRoom,
     Warehouse,
-    JailCell
+    JailCell,
+    HomeEvening     // added last so existing Inspector entries don't shift
 }
 
 // Everyone who can talk. None = narration, Player = you.

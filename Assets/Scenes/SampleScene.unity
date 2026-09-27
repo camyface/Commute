@@ -966,6 +966,8 @@ MonoBehaviour:
     sprite: {fileID: 68215294038110208, guid: 6f866ff56f2aded49959126b95afa8ce, type: 3}
   - backdrop: 5
     sprite: {fileID: 681896718633334208, guid: b279543512b5c08478f8cea2dccbb5f1, type: 3}
+  - backdrop: 14
+    sprite: {fileID: 21300000, guid: f94329c003b20d741945a5cdcfd29487, type: 3}
   characterImage: {fileID: 1827286436}
   playerImage: {fileID: 701144966}
   speakerNameColor: {r: 1, g: 0.85, b: 0.4, a: 1}

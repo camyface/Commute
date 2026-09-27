@@ -111,6 +111,7 @@ public class EventUI : MonoBehaviour
     private List<EventChoice> currentChoices = new List<EventChoice>();
     private readonly HashSet<string> usedGroups = new HashSet<string>();
     private bool radiantRolled;   // one radiant roll per stage
+    private bool inEpilogue;      // playing the end-of-week character slides
 
     // Dialogue playback
     private readonly Queue<DialogueLine> lineQueue = new Queue<DialogueLine>();
@@ -195,6 +196,7 @@ public class EventUI : MonoBehaviour
         eventIndex = 0;
         usedGroups.Clear();
         radiantRolled = false;
+        inEpilogue = false;
 
         summaryPanel.SetActive(false);
         if (eventPanel != null) eventPanel.SetActive(true);
@@ -211,12 +213,12 @@ public class EventUI : MonoBehaviour
         while (stageIndex < day.Count)
         {
             // Fired, arrested, etc: skip whatever is left of the day.
-            if (gs.weekOver || gs.HasFlag(GameState.EndDayFlag)) break;
+            if (!inEpilogue && (gs.weekOver || gs.HasFlag(GameState.EndDayFlag))) break;
 
             DayStage stage = day[stageIndex];
 
             // Arriving at a new stage: small chance of a radiant event first.
-            if (!radiantRolled)
+            if (!radiantRolled && !inEpilogue)
             {
                 radiantRolled = true;
                 GameEvent radiant = PickRadiantEvent(stage.location);
@@ -251,6 +253,19 @@ public class EventUI : MonoBehaviour
             eventIndex = 0;
             usedGroups.Clear();
             radiantRolled = false;
+        }
+
+        // Last day done (or the week ended early): play the epilogue before the summary.
+        if (gs.IsLastDay && !inEpilogue)
+        {
+            inEpilogue = true;
+            gs.EndDay();   // final bookkeeping first, so the epilogue and summary agree
+            day = new List<DayStage> { DayEvents.BuildEpilogue() };
+            stageIndex = 0;
+            eventIndex = 0;
+            usedGroups.Clear();
+            ShowNextEvent();
+            return;
         }
 
         ShowDaySummary();
@@ -305,7 +320,7 @@ public class EventUI : MonoBehaviour
 
         // Start with whoever is "present", or nobody.
         // The player appears whenever someone else is on screen.
-        playerExpression = Expression.Neutral;
+        playerExpression = ev.presentCharacter == CharacterId.Player ? ev.presentExpression : Expression.Neutral;
         ShowPortrait(ev.presentCharacter, ev.presentExpression);
         ShowPlayer(ev.presentCharacter != CharacterId.None || EventHasPlayerLines(ev));
         SetSpeaker(CharacterId.None, instant: true);
@@ -588,7 +603,7 @@ public class EventUI : MonoBehaviour
     private void ShowDaySummary()
     {
         var gs = GameState.Instance;
-        gs.EndDay();
+        if (!inEpilogue) gs.EndDay();   // the epilogue already did this on the last day
 
         var sb = new StringBuilder();
 
@@ -667,7 +682,23 @@ public class EventUI : MonoBehaviour
         if (gs.HasPermanentFlag("PetitionSigned")) sb.AppendLine("Route 9 was saved. Your signature counted.");
         else if (gs.HasPermanentFlag("MetPetitioner")) sb.AppendLine("Route 9 was cut. You had your chance to sign.");
 
-        if (gs.HasPermanentFlag("ThugCaught")) sb.AppendLine("The mugger is behind bars thanks to your tip.");
+        if (gs.HasPermanentFlag("SavedBoth")) sb.AppendLine("You fought corporate and saved both jobs.");
+        else if (gs.HasPermanentFlag("CoworkerSacrifice")) sb.AppendLine("You took the fall so your coworker could keep their job.");
+        else if (gs.HasPermanentFlag("BetrayedCoworker")) sb.AppendLine("You threw your coworker under the bus.");
+        else if (gs.HasPermanentFlag("LaidOff")) sb.AppendLine("You were laid off on Friday.");
+        else if (gs.HasPermanentFlag("CoworkerLaidOff")) sb.AppendLine("Your coworker was laid off on Friday.");
+
+        if (gs.HasPermanentFlag("Promoted")) sb.AppendLine("You took your coworker's job, their account and a $150 raise.");
+        if (gs.HasPermanentFlag("TookCredit")) sb.AppendLine("You took credit for your coworker's idea.");
+        if (gs.HasPermanentFlag("PaddedExpenses")) sb.AppendLine("You padded your expense report and got away with it.");
+        else if (gs.HasPermanentFlag("CaughtPadding")) sb.AppendLine("You got caught padding your expense report.");
+        if (gs.HasPermanentFlag("KeptWallet")) sb.AppendLine("You kept your neighbor's rent money.");
+
+        if (gs.HasPermanentFlag("ShowdownPaidOff")) sb.AppendLine("Friday night, you paid the man in the leather jacket to go away.");
+        else if (gs.HasPermanentFlag("ShowdownWon")) sb.AppendLine($"Friday night, {gs.GetCount("ShowdownAllies")} people showed up to help you. He was arrested.");
+        else if (gs.HasPermanentFlag("ShowdownEscaped")) sb.AppendLine("Friday night, you got away from the man in the leather jacket.");
+        else if (gs.HasPermanentFlag("ShowdownLost") || gs.HasPermanentFlag("ShowdownPaid")) sb.AppendLine("Friday night, you faced him alone and lost.");
+        else if (gs.HasPermanentFlag("ThugCaught")) sb.AppendLine("The mugger is behind bars thanks to your tip.");
         if (arrested) sb.AppendLine("You now have an arrest on your record.");
         if (gs.HasPermanentFlag("PresentationWin")) sb.AppendLine("You nailed the client presentation.");
         else if (gs.HasPermanentFlag("PresentationFail")) sb.AppendLine("The client presentation still haunts you.");
@@ -675,19 +706,7 @@ public class EventUI : MonoBehaviour
         sb.AppendLine();
 
         // ---------- Ending ----------
-        if (fired)
-            sb.AppendLine("<b>Ending: Pink Slip.</b> You're cleaning out your desk.");
-        else if (arrested)
-            sb.AppendLine("<b>Ending: Jailbird.</b> Easy money turned out to be very expensive.");
-        else if (gs.standing <= 2)
-            sb.AppendLine("<b>Ending: On Thin Ice.</b> Your boss has put you on a final warning.");
-        else if (gs.money <= 0)
-            sb.AppendLine("<b>Ending: Flat Broke.</b> You made it to the weekend with empty pockets.");
-        else if (gs.standing >= 8)
-            sb.AppendLine("<b>Ending: Rising Star.</b> Your boss mentions a promotion.");
-        else if (gs.mood >= 8)
-            sb.AppendLine("<b>Ending: Good Vibes.</b> Work was fine, but you enjoyed your week.");
-        else
-            sb.AppendLine("<b>Ending: Survived.</b> Another week down.");
+        var ending = DayEvents.GetEnding();
+        sb.AppendLine($"<b>Ending: {ending.title}.</b> {ending.text}");
     }
 }

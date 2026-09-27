@@ -53,6 +53,53 @@ public static class DayEvents
         bool CookiesShow() => Count("NeighborFriendship") >= 2 && !HasP("GotCookies") && gs.IsBefore(20);
         bool ColdShoulderShows() => Count("NeighborFriendship") <= -2;
 
+        // Friday showdown: who he is and what he wants depends on your history with him.
+        string ThugIntro()
+        {
+            if (HasP("ReportedThug")) return "Same leather jacket as the man the police took away. Same jaw. His brother, maybe.";
+            if (HasP("DidThugJob")) return "It's the man from the warehouse job.";
+            if (HasP("ThugAngry")) return "It's the man whose package you dumped.";
+            if (HasP("LostWallet")) return "It's the man who mugged you.";
+            return "A big man in a leather jacket. You've seen him hanging around the warehouse district all week.";
+        }
+
+        string ThugDemand()
+        {
+            if (HasP("ReportedThug")) return "You're the one who called the cops on my brother. Time to pay for that.";
+            if (HasP("DidThugJob")) return "Cops traced that package back to me. Someone owes me for the heat. That's you.";
+            if (HasP("ThugAngry")) return "You threw away my merchandise. Now I take it out of you.";
+            if (HasP("LostWallet")) return "Back for round two. Payday Friday, right? Wallet.";
+            return "Friday. Payday. Wallet, phone. You know how this goes.";
+        }
+
+        // Mon-Thu: one last hook before the day summary, building toward Friday.
+        string Cliffhanger()
+        {
+            switch (day)
+            {
+                case 1:
+                    if (HasP("MetPetitioner") && !HasP("PetitionSigned"))
+                        return "As you drift off, you notice a flyer slid under your door:\nROUTE 9 CUT THURSDAY. WE'RE 40 SIGNATURES SHORT.";
+                    if (!HasDog() && !HasP("DogGone"))
+                        return "As you drift off, a dog howls somewhere down the street. It sounds lonely.";
+                    return "As you drift off, you remember: the Henderson presentation is Wednesday.";
+                case 2:
+                    if (ThugActive() && !LostPhone())
+                        return "Your phone buzzes. A text from an unknown number:\n\"saw u near the warehouses. nice watch.\"";
+                    return "As you drift off, you hear shouting in the street. Someone yells about a package. Then silence.";
+                case 3:
+                    if (!LostPhone())
+                        return "Your phone buzzes. The work group chat is on fire:\n\"did anyone else get the email?? corporate is coming in FRIDAY\"";
+                    return "Through the wall, you hear your neighbor's TV: \"...more layoffs expected downtown this week...\"";
+                default:
+                    return "A noise in the alley wakes you. Through the blinds, a man in a leather jacket is standing under the streetlight, staring up at your window.\nThen he's gone.";
+            }
+        }
+
+        bool Standoff() => Has("Standoff");
+        int Allies() => Count("ShowdownAllies");
+        void AllyArrives() => gs.AddCount("ShowdownAllies");
+
         int PayCheck()
         {
             int pay = 120 - 15 * Count("TimesLate");
@@ -90,7 +137,7 @@ public static class DayEvents
 
         // Standing hit 0? Your boss fires you and the week ends. Placed at a few points in the workday.
         GameEvent FiredCheck(string id) => new GameEvent(id)
-            .When(() => gs.standing <= 0)
+            .When(() => gs.standing <= 0 && !HasP("LaidOff"))
             .Scene(Backdrop.MeetingRoom)
             .With(Boss, Annoyed)
             .Narrate("Your boss calls you into the meeting room. Someone from HR is already sitting there.")
@@ -200,6 +247,28 @@ public static class DayEvents
                         gs.AddHistory("Ignored the electricity bill");
                     })
                         .Reply(None, "You toss it on the counter. Future you's problem."),
+
+                new GameEvent("DogVet")
+                    .Group("HomeMorning", 3f)
+                    .Once()
+                    .When(HasDog)
+                    .With(Dog, Sad)
+                    .Narrate("Your dog is limping and won't put weight on his back paw. The emergency vet quotes $40.")
+                    .Say(Dog, "*whimpers*", Sad)
+                    .Choice("Take him to the vet ($40)", () =>
+                    {
+                        Spend(40);
+                        gs.AddTime(30);
+                        gs.AddHistory("Took the dog to the vet ($40)");
+                    }, () => Afford(40))
+                        .Reply(Dog, "*a bandaged paw and a very proud wag*", Happy)
+                    .Choice("It'll heal on its own", () =>
+                    {
+                        gs.AddPermanentFlag("DogHurt");
+                        gs.ChangeMood(-1);
+                        gs.AddHistory("Didn't take the limping dog to the vet");
+                    })
+                        .Reply(Dog, "*limps back to his bed*", Sad),
 
                 new GameEvent("ColdShower")
                     .Group("HomeMorning")
@@ -329,9 +398,10 @@ public static class DayEvents
                         gs.AddPermanentFlag("PetitionSigned");
                         gs.AddHistory("Signed the Route 9 petition");
                         gs.ChangeMood(1);
-                        gs.AddTime(5);
+                        gs.AddTime(15);
                     })
-                        .Reply(Petitioner, "Thank you! Every name counts.", Happy)
+                        .Reply(Petitioner, "Thank you! Every name counts. Now, have you considered how the 7:40 connects to the...", Happy)
+                        .Reply(None, "Fifteen minutes later, you finally escape. You're going to be cutting it close.")
                     .Choice("Sign and donate $10", () =>
                     {
                         Spend(10);
@@ -340,7 +410,7 @@ public static class DayEvents
                         gs.AddPermanentFlag("Donated");
                         gs.AddHistory("Signed the petition and donated $10");
                         gs.ChangeMood(2);
-                        gs.AddTime(5);
+                        gs.AddTime(15);
                     }, () => Afford(10))
                         .Reply(Petitioner, "You're a star. I won't forget this.", Happy)
                     .Choice("Not today", () =>
@@ -368,6 +438,28 @@ public static class DayEvents
                         gs.ChangeMood(2);
                     })
                         .Reply(Petitioner, "No, thank YOU. See you around, neighbor.", Happy),
+
+                new GameEvent("FoundWallet")
+                    .Group("StreetMorning", 2f)
+                    .Once()
+                    .When(() => day <= 3)
+                    .Narrate("There's a fat leather wallet lying in the gutter. Inside: $60 in cash and an ID with an address three doors down from yours.")
+                    .Choice("Pocket the cash (+$60)", () =>
+                    {
+                        gs.ChangeMoney(60);
+                        gs.AddPermanentFlag("KeptWallet");
+                        gs.SetCount("WalletDay", day);
+                        if (Roll(0.35f)) gs.AddPermanentFlag("SeenKeepingWallet");
+                        gs.AddHistory("Kept $60 from a wallet you found");
+                    })
+                        .Reply(None, "You toss the empty wallet back in the gutter. Nobody saw. Probably.")
+                    .Choice("Return it (you'll be late)", () =>
+                    {
+                        gs.AddCount("NeighborFriendship", 2);
+                        gs.AddTime(20);
+                        gs.AddHistory("Returned a lost wallet to your neighbor");
+                    })
+                        .Reply(Neighbor, "My wallet! My rent money was in there! Oh, bless you. I won't forget this.", Happy),
 
                 new GameEvent("QuietStreet", () => rainy
                         ? "Rain drums on parked cars. The street is empty."
@@ -482,8 +574,9 @@ public static class DayEvents
                         gs.RemoveFlag("HasUmbrella");
                         gs.AddPermanentFlag("GaveUmbrella");
                         gs.AddCount("VagrantKindness", 2);
-                        gs.AddHistory("Gave Joe your umbrella");
-                        gs.ChangeMood(2);
+                        gs.AddFlag("GotWet");   // it's a long walk from the bus stop
+                        gs.AddHistory("Gave Joe your umbrella, then walked to work in the downpour");
+                        gs.ChangeMood(1);
                     }, () => rainy && Has("HasUmbrella"))
                         .Reply(Vagrant, "You sure? ...Thank you. Really. Name's Joe.", Surprised)
                     .Choice("Look away", () => gs.AddHistory("Ignored the man asking for change"))
@@ -770,18 +863,21 @@ public static class DayEvents
                     .Say(Coworker, "Hey... do you have a minute? My spreadsheet just ate itself and it's due at noon.", Sad)
                     .Choice("Help them", () =>
                     {
-                        gs.AddHistory("Helped a coworker fix their spreadsheet");
+                        gs.AddHistory("Helped a coworker fix their spreadsheet (your own work slipped, job standing -1)");
                         gs.AddCount("CoworkerFriendship");
                         gs.AddPermanentFlag("CoworkerOwesYou");
                         gs.ChangeMood(1);
+                        gs.ChangeStanding(-1);
                         gs.AddTime(45);
                     })
-                        .Reply(None, "Forty-five minutes and three undo buttons later, it's fixed.")
+                        .Reply(None, "Forty-five minutes and three undo buttons later, it's fixed. Your own deadline flew by.")
+                        .Reply(Boss, "Where's your report? I needed it at noon.", Annoyed)
                         .Reply(Coworker, "You're a lifesaver. I owe you one. Seriously.", Happy)
                     .Choice("Sorry, I'm swamped", () =>
                     {
-                        gs.AddHistory("Turned down a coworker who needed help");
+                        gs.AddHistory("Turned down a coworker and hit your own deadline (job standing +1)");
                         gs.AddFlag("Productive");
+                        gs.ChangeStanding(1);
                     })
                         .Reply(Coworker, "No worries... I'll figure it out.", Sad),
 
@@ -815,6 +911,27 @@ public static class DayEvents
                         gs.ChangeEnergy(1);
                         gs.AddTime(30);
                     }),
+
+                new GameEvent("ExpenseReport", "Expense reports are due. Nobody checks the taxi receipts too closely... usually.")
+                    .Group("WorkMorning")
+                    .Once()
+                    .Choice("Pad the report (+$40)", () =>
+                    {
+                        if (Roll(0.25f))
+                        {
+                            gs.AddPermanentFlag("CaughtPadding");
+                            gs.ChangeStanding(-3);
+                            gs.AddHistory("Got caught padding your expense report (job standing -3)");
+                        }
+                        else
+                        {
+                            gs.ChangeMoney(40);
+                            gs.AddPermanentFlag("PaddedExpenses");
+                            gs.AddHistory("Padded your expense report (+$40)");
+                        }
+                    })
+                        .Reply(Boss, () => HasP("CaughtPadding") ? "Three taxis in one day? To the same address? Really?" : "", Annoyed)
+                    .Choice("Keep it honest", () => gs.AddHistory("Filed an honest expense report")),
 
                 new GameEvent("StayLateFavor")
                     .Group("WorkMorning")
@@ -949,12 +1066,11 @@ public static class DayEvents
                     })
                         .Reply(Coworker, "Oh. Okay. I'll... save you a slice.", Sad),
 
+                // Thursday: sets up Friday's layoff decision.
                 new GameEvent("LayoffRumors")
-                    .Group("WorkAfternoon")
-                    .Once()
-                    .When(() => day >= 2)
+                    .When(() => day == 4 && !HasP("LaidOff"))
                     .With(Coworker, Surprised)
-                    .Say(Coworker, "Psst. Layoffs are coming. I heard they're picking names by Friday.", Surprised)
+                    .Say(Coworker, "Psst. Layoffs are coming. Corporate wants one name from our team. By tomorrow.", Surprised)
                     .Say(Coworker, () => gs.standing <= 3
                         ? "And... I think I heard yours. I'm so sorry."
                         : "Don't worry, you're safe. Probably. Your name never came up.",
@@ -967,6 +1083,40 @@ public static class DayEvents
                         gs.AddHistory("Worked extra hard after hearing layoff rumors");
                     })
                     .Choice("Shrug it off", () => gs.AddHistory("Ignored the layoff rumors")),
+
+                new GameEvent("TakeCredit")
+                    .Group("WorkAfternoon", 1.5f)
+                    .Once()
+                    .When(() => !HasP("BetrayedCoworker"))
+                    .Scene(Backdrop.MeetingRoom)
+                    .With(Boss, Happy)
+                    .Narrate("In the afternoon meeting, your boss holds up a proposal. It's your coworker's idea, but your name is on the shared file.")
+                    .Say(Boss, "Whoever came up with this: brilliant. This is exactly the thinking I want to see. Was this you?", Happy)
+                    .Choice("Take the credit", () =>
+                    {
+                        gs.AddPermanentFlag("TookCredit");
+                        gs.ChangeStanding(2);
+                        if (Roll(0.5f))
+                        {
+                            gs.AddFlag("CreditDiscovered");
+                            gs.AddCount("CoworkerFriendship", -3);
+                            gs.AddHistory("Took credit for your coworker's idea (job standing +2). They noticed.");
+                        }
+                        else
+                        {
+                            gs.AddHistory("Took credit for your coworker's idea (job standing +2)");
+                        }
+                    })
+                        .Reply(Player, "Yeah, that was me.")
+                        .Reply(Boss, "I'll remember this at review time.", Happy)
+                        .Reply(Coworker, () => Has("CreditDiscovered") ? "*stares at you from across the table, jaw tight*" : "", Annoyed)
+                    .Choice("Credit your coworker", () =>
+                    {
+                        gs.AddCount("CoworkerFriendship", 2);
+                        gs.AddHistory("Gave your coworker credit for their idea");
+                    })
+                        .Reply(Player, "That was actually their idea.")
+                        .Reply(Coworker, "*mouths 'thank you'*", Happy),
 
                 new GameEvent("QuietAfternoon", "The afternoon crawls by. Emails, a meeting that could've been an email, more emails.")
                     .Group("WorkAfternoon", 0.7f)
@@ -1015,45 +1165,124 @@ public static class DayEvents
                         gs.ChangeMood(1);
                     }),
 
-                // Friday: the boss looks back on your week.
-                new GameEvent("FridayReview")
+                // =================== FRIDAY: THE LAYOFF ===================
+                // Corporate wants one cut: you or your coworker. Your week decides how much say you get.
+                new GameEvent("LayoffDecision")
                     .When(() => isFriday)
                     .Scene(Backdrop.MeetingRoom)
                     .With(Boss)
-                    .Narrate("Your boss calls you into the meeting room for your weekly review.")
+                    .Narrate("Your boss calls you and your coworker into the meeting room. Nobody is smiling.")
+                    .Say(Boss, "I'll be straight with you both. Corporate wants one position cut from this team. Today.")
+                    .Say(Boss, "Whoever stays inherits the Henderson account. And the $150 raise that comes with it.")
                     .Say(Boss, () =>
                     {
-                        if (gs.standing <= 2) return "I'm going to be blunt. You're one mistake away from being let go.";
-                        if (gs.standing >= 8) return "Honestly? Best week anyone on this team has had in months.";
-                        return "Solid week. Nothing to write home about, but solid.";
-                    }, () => gs.standing <= 2 ? Annoyed : gs.standing >= 8 ? Happy : Neutral)
-                    .Choice("Nod")
-                        .Reply(Boss, () => gs.standing <= 2 ? "Close the door on your way out." : "Have a good weekend.",
-                            () => gs.standing <= 2 ? Annoyed : Neutral)
-                    .Choice("Ask about a raise", () =>
+                        if (gs.standing >= 7) return "Honestly? Your week makes this easy. It isn't going to be you.";
+                        if (gs.standing <= 3) return "Your week hasn't helped you. Right now, it's leaning your way.";
+                        return "It's close. Closer than I'd like. So if either of you has something to say, now's the time.";
+                    }, () => gs.standing >= 7 ? Neutral : gs.standing <= 3 ? Annoyed : Sad)
+                    .Say(Coworker, () => Count("CoworkerFriendship") >= 3
+                        ? "*glances at you* I've got rent due next week. I really, really need this."
+                        : "*stares at the table* I really need this job.", Sad)
+
+                    .Choice("Point out their mistakes", () =>
                     {
-                        if (gs.standing >= 8)
+                        gs.AddPermanentFlag("BetrayedCoworker");
+                        gs.SetCount("CoworkerFriendship", -5);
+                        if (gs.standing >= 3)
                         {
-                            gs.AddPermanentFlag("GotRaise");
-                            gs.ChangeMoney(100);
-                            gs.AddHistory("Got a raise, with a $100 signing bonus");
+                            gs.AddPermanentFlag("CoworkerLaidOff");
+                            gs.AddPermanentFlag("Promoted");
+                            gs.ChangeStanding(2);
+                            gs.ChangeMoney(150);
+                            gs.ChangeMood(-1);
+                            gs.AddHistory("Threw your coworker under the bus. They were let go. You got their account and a $150 raise.");
                         }
                         else
                         {
-                            gs.ChangeStanding(-1);
-                            gs.AddHistory("Asked for a raise and got shot down (job standing -1)");
+                            gs.AddPermanentFlag("LaidOff");
+                            gs.ChangeMood(-4);
+                            gs.AddHistory("Tried to blame your coworker. It backfired. You were let go.");
+                        }
+                    })
+                        .Reply(Player, "Honestly? That spreadsheet disaster this week wasn't a one-off.", Annoyed)
+                        .Reply(Coworker, () => HasP("CoworkerOwesYou") ? "...Wow. And I thought I owed YOU." : "...Wow. Seriously?", Annoyed)
+                        .Reply(Boss, () => HasP("LaidOff")
+                            ? "Nice try. It's still you. Clear your desk."
+                            : "...That makes it easy. The Henderson account is yours. Congratulations, I suppose.", () => HasP("LaidOff") ? Annoyed : Neutral)
+
+                    .Choice("Take the fall for them", () =>
+                    {
+                        gs.AddPermanentFlag("LaidOff");
+                        gs.AddPermanentFlag("CoworkerSacrifice");
+                        gs.AddCount("CoworkerFriendship", 5);
+                        gs.ChangeMood(1);
+                        gs.AddHistory("Volunteered to be laid off so your coworker could stay");
+                    })
+                        .Reply(Player, "Let me go. They need this more than I do.", Sad)
+                        .Reply(Coworker, "What? No, you can't just...", Surprised)
+                        .Reply(Boss, "That's either very noble or very stupid. Alright. I'm sorry.", Sad)
+
+                    .Choice("Fight for both of you", () =>
+                    {
+                        bool convincing = HasP("PresentationWin") || Count("ProductiveDays") >= 3 || gs.standing >= 8;
+                        if (convincing)
+                        {
+                            gs.AddPermanentFlag("SavedBoth");
+                            gs.ChangeStanding(2);
+                            gs.ChangeMood(3);
+                            gs.AddCount("CoworkerFriendship", 3);
+                            gs.AddHistory("Fought corporate and saved both jobs");
+                        }
+                        else if (gs.standing >= 6)
+                        {
+                            gs.AddPermanentFlag("CoworkerLaidOff");
+                            gs.AddCount("CoworkerFriendship", 1);
+                            gs.ChangeMood(-2);
+                            gs.AddHistory("Fought for both jobs, but your coworker was let go");
+                        }
+                        else
+                        {
+                            gs.AddPermanentFlag("LaidOff");
+                            gs.AddCount("CoworkerFriendship", 2);
+                            gs.ChangeMood(-3);
+                            gs.AddHistory("Fought for both jobs, and lost yours");
                         }
                     }, () => gs.standing >= 5)
-                        .Reply(Player, "Actually... could we talk about a raise?", Surprised)
-                        .Reply(Boss, () => HasP("GotRaise")
-                            ? "...You know what? You've earned it. I'll put it through today."
-                            : "Let's see a few more weeks like this one first.",
-                            () => HasP("GotRaise") ? Happy : Annoyed),
+                        .Reply(Player, "Cut us both or neither. This team doesn't work without both of us.", Annoyed)
+                        .Reply(Boss, () =>
+                        {
+                            if (HasP("SavedBoth")) return "...Your numbers this week back that up. Fine. I'll take it to corporate myself.";
+                            if (HasP("LaidOff")) return "I admire that. It doesn't change the numbers. I'm sorry.";
+                            return "I hear you. But I have to pick, and I'm picking you. I'm sorry.";
+                        }, () => HasP("SavedBoth") ? Surprised : Sad)
+                        .Reply(Coworker, () => HasP("SavedBoth") ? "You are completely insane. Thank you." : "", Happy)
+
+                    .Choice("Stay quiet and let the boss decide", () =>
+                    {
+                        if (gs.standing >= 4 && Roll(0.5f))
+                        {
+                            gs.AddPermanentFlag("CoworkerLaidOff");
+                            gs.ChangeMood(-1);
+                            gs.AddHistory("Stayed quiet. Your coworker was let go.");
+                        }
+                        else
+                        {
+                            gs.AddPermanentFlag("LaidOff");
+                            gs.ChangeMood(-3);
+                            gs.AddHistory("Stayed quiet. You were let go.");
+                        }
+                    }, () => gs.standing < 5)
+                        .Reply(None, "The silence stretches. Your boss looks at their notes for a long time.")
+                        .Reply(Boss, () => HasP("LaidOff")
+                            ? "I'm sorry. It has to be you. Security will help you with your things."
+                            : "You stay. *turns to your coworker* I'm sorry. Truly.", Sad),
 
                 FiredCheck("FiredEndOfDay"),
 
                 new GameEvent("EndOfDay", () =>
                     {
+                        if (HasP("LaidOff"))
+                            return "Security watches you pack. Everything you own here fits in one cardboard box.";
                         string text = Has("Productive")
                             ? "It's nearly 5:00 PM and you got a lot done today."
                             : "It's nearly 5:00 PM and you didn't get much done today.";
@@ -1065,13 +1294,13 @@ public static class DayEvents
                     {
                         gs.AdvanceTo(gs.workEndMinutes);
                         gs.AddHistory("Left work on time");
-                    }, () => !Has("PromisedStayLate"))
+                    }, () => !Has("PromisedStayLate") && !HasP("LaidOff"))
                     .Choice("Sneak out anyway", () =>
                     {
                         gs.AdvanceTo(gs.workEndMinutes);
                         gs.ChangeStanding(-3);
                         gs.AddHistory("Broke your promise to stay late (job standing -3)");
-                    }, () => Has("PromisedStayLate"))
+                    }, () => Has("PromisedStayLate") && !HasP("LaidOff"))
                         .Reply(None, "You make it to the elevator. Your phone buzzes. It's your boss. You don't answer.")
                     .Choice("Stay late", () =>
                     {
@@ -1083,7 +1312,12 @@ public static class DayEvents
                         gs.ChangeMood(-1);
                         gs.ChangeEnergy(-1);
                         gs.AddTime(90);
-                    })
+                    }, () => !HasP("LaidOff"))
+                    .Choice("Carry your box out", () =>
+                    {
+                        gs.AdvanceTo(gs.workEndMinutes);
+                        gs.AddHistory("Walked out of the office for the last time");
+                    }, () => HasP("LaidOff"))
             ),
 
             // =====================================================================
@@ -1104,12 +1338,30 @@ public static class DayEvents
                         gs.ChangeMood(2);
                     }),
 
+                // Friday: if your coworker was let go, they're outside with their box.
+                new GameEvent("CoworkerBox")
+                    .When(() => isFriday && HasP("CoworkerLaidOff"))
+                    .With(Coworker, HasP("BetrayedCoworker") ? Annoyed : Sad)
+                    .Narrate("Your coworker is waiting outside, holding a cardboard box. A little potted plant pokes out of the top.")
+                    .Say(Coworker, () => HasP("BetrayedCoworker")
+                        ? "Hope it was worth it."
+                        : "Hey. You tried. I saw that. It means something.",
+                        () => HasP("BetrayedCoworker") ? Annoyed : Sad)
+                    .Choice("I'm sorry", () => gs.AddHistory("Apologized to your coworker"))
+                        .Reply(Coworker, () => HasP("BetrayedCoworker") ? "No. You're not." : "Don't be. Go home. Get some sleep.",
+                            () => HasP("BetrayedCoworker") ? Annoyed : Sad)
+                    .Choice("Say nothing", () => gs.ChangeMood(-1)),
+
                 // Time-based: only if you left before 6 PM.
                 new GameEvent("Drinks")
-                    .When(() => gs.IsBefore(18))
+                    .When(() => gs.IsBefore(18) && !HasP("CoworkerLaidOff") && !HasP("BetrayedCoworker"))
                     .With(Coworker, Happy)
                     .Say(Coworker, () =>
                     {
+                        if (isFriday && HasP("CoworkerSacrifice"))
+                            return "Don't argue. Tonight's on me. All of it. It's the least I can do.";
+                        if (isFriday && HasP("LaidOff"))
+                            return "Come on. You need a drink more than anyone. First round's yours, though.";
                         if (isFriday && HasP("CoworkerOwesYou"))
                             return "It's Friday! And drinks are on me tonight. I owe you, remember?";
                         if (isFriday)
@@ -1125,7 +1377,7 @@ public static class DayEvents
                         gs.ChangeMood(isFriday ? 3 : 2);
                         gs.ChangeEnergy(-1);
                         gs.AddTime(90);
-                    }, () => Afford(15) && !(isFriday && HasP("CoworkerOwesYou")))
+                    }, () => Afford(15) && !(isFriday && (HasP("CoworkerOwesYou") || HasP("CoworkerSacrifice"))))
                         .Reply(Coworker, "That's what I like to hear!", Happy)
                     .Choice("Join them (they're buying)", () =>
                     {
@@ -1135,8 +1387,8 @@ public static class DayEvents
                         gs.ChangeMood(4);
                         gs.ChangeEnergy(-1);
                         gs.AddTime(90);
-                    }, () => isFriday && HasP("CoworkerOwesYou"))
-                        .Reply(Coworker, "To the spreadsheet savior!", Happy)
+                    }, () => isFriday && (HasP("CoworkerOwesYou") || HasP("CoworkerSacrifice")))
+                        .Reply(Coworker, () => HasP("CoworkerSacrifice") ? "To the best person I've ever worked with." : "To the spreadsheet savior!", Happy)
                     .Choice("Head home", () => gs.AddHistory("Skipped drinks"))
                         .Reply(Coworker, () => Afford(15) ? "Boo. Next time, then!" : "Broke, huh? Been there.", Neutral),
 
@@ -1150,7 +1402,7 @@ public static class DayEvents
                     .Say(Thug, () => HasP("LostWallet")
                         ? "Hey, I remember you. No hard feelings, yeah? Let me make it up to you."
                         : (gs.money < 20 ? "You look like someone who's running low on cash." : "You look like someone who could use some easy money."))
-                    .Say(Thug, "Drop a package at the old warehouse tonight. A hundred bucks, cash. No questions.")
+                    .Say(Thug, "Drop a package at the old warehouse tonight. A hundred and fifty, cash. No questions.")
                     .Choice("Take the job", () =>
                     {
                         gs.AddFlag("AcceptedThugJob");
@@ -1194,6 +1446,29 @@ public static class DayEvents
                             : "Shelter's full most nights. But thanks for thinking of me.",
                             () => HasP("VagrantHoused") ? Happy : Sad)
                     .Choice("Walk past", () => gs.AddHistory("Walked past the man in the doorway")),
+
+                new GameEvent("JoeShelterDeposit")
+                    .Group("OfficeEvening", 2f)
+                    .Once()
+                    .When(() => Kindness() >= 1 && !HasP("VagrantHoused"))
+                    .With(Vagrant, Sad)
+                    .Narrate("Joe is waiting outside your office. He looks like he's rehearsed this.")
+                    .Say(Vagrant, "The shelter on 5th has one bed left. They need a $30 deposit by tonight. I wouldn't ask if... I know it's a lot.", Sad)
+                    .Choice("Pay the deposit ($30)", () =>
+                    {
+                        Spend(30);
+                        gs.AddCount("VagrantKindness", 2);
+                        gs.AddPermanentFlag("VagrantHoused");
+                        gs.AddHistory("Paid Joe's shelter deposit ($30)");
+                        gs.ChangeMood(2);
+                    }, () => Afford(30))
+                        .Reply(Vagrant, "A real bed. You don't know what this means. I'll pay you back someday, I swear.", Happy)
+                    .Choice("I can't afford it", () =>
+                    {
+                        gs.AddHistory("Turned down Joe's request for a deposit");
+                        gs.ChangeMood(-1);
+                    })
+                        .Reply(Vagrant, "...Yeah. I get it. Nobody can these days.", Sad),
 
                 new GameEvent("PetitionerEvening")
                     .Group("OfficeEvening", 3f)
@@ -1300,15 +1575,16 @@ public static class DayEvents
                     .Choice("Hand it over", () =>
                     {
                         gs.AddFlag("DeliveredPackage");
+                        gs.AddPermanentFlag("DidThugJob");
                         gs.AddFlag("WalkedHome");
-                        gs.ChangeMoney(100);
-                        gs.AddHistory("Delivered the package for $100");
+                        gs.ChangeMoney(150);
+                        gs.AddHistory("Delivered the package for $150");
                         gs.AddTime(20);
                     })
                         .Reply(Thug, "Pleasure doing business.", Happy),
 
                 new GameEvent("PoliceRaid")
-                    .When(() => Has("DeliveredPackage") && (Has("IgnoredWarning") || Roll(0.5f)))
+                    .When(() => Has("DeliveredPackage") && (Has("IgnoredWarning") || Roll(0.4f)))
                     .Scene(Backdrop.Warehouse)
                     .With(Thug, Surprised)
                     .Narrate("Headlights flood the loading dock. \"POLICE! NOBODY MOVE!\"")
@@ -1325,7 +1601,7 @@ public static class DayEvents
                         else
                         {
                             gs.AddFlag("Caught");
-                            gs.ChangeMoney(-100);   // the cash is evidence
+                            gs.ChangeMoney(-150);   // the cash is evidence
                         }
                     })
                         .Reply(None, () => Has("Caught")
@@ -1334,13 +1610,13 @@ public static class DayEvents
                     .Choice("Put your hands up", () =>
                     {
                         gs.AddFlag("Caught");
-                        gs.ChangeMoney(-100);   // the cash is evidence
+                        gs.ChangeMoney(-150);   // the cash is evidence
                     }),
 
                 new GameEvent("JailCell")
                     .When(() => Has("Caught"))
                     .Scene(Backdrop.JailCell)
-                    .Narrate("They take the $100 as evidence. You spend the night in a holding cell that smells like old coffee and regret.")
+                    .Narrate("They take the $150 as evidence. You spend the night in a holding cell that smells like old coffee and regret.")
                     .Narrate(() => $"A guard raps on the bars. \"Bail's $50. Or you can wait for the morning.\" You have ${gs.money}.")
                     .Choice("Pay bail ($50)", () =>
                     {
@@ -1433,6 +1709,149 @@ public static class DayEvents
             // =====================================================================
             new DayStage(Location.OutsideHome, Backdrop.OutsideHomeEvening,
 
+                // ================= FRIDAY NIGHT: THE SHOWDOWN =================
+                // Everyone you helped this week decides whether you face him alone.
+                new GameEvent("Showdown")
+                    .When(() => isFriday)
+                    .With(Thug, Annoyed)
+                    .Narrate("You're half a block from home when a shape peels away from the shadows and blocks the sidewalk.")
+                    .Narrate(() => ThugIntro())
+                    .Say(Thug, () => ThugDemand(), Annoyed)
+                    .Choice("Stand your ground", () =>
+                    {
+                        gs.AddFlag("Standoff");
+                        gs.SetCount("ShowdownAllies", 0);
+                        gs.AddHistory("Stood your ground against the man in the leather jacket");
+                    })
+                        .Reply(Player, "No. Not tonight.", Annoyed)
+                        .Reply(Thug, "Wrong answer.", Annoyed)
+                    .Choice("Pay him off ($100)", () =>
+                    {
+                        Spend(100);
+                        gs.AddPermanentFlag("ShowdownPaidOff");
+                        gs.AddHistory("Paid the man in the leather jacket $100 to go away");
+                    }, () => Afford(100))
+                        .Reply(Thug, "*counts it twice* ...Pleasure doing business. I won't be seeing you.", Happy)
+                    .Choice("Hand over your wallet", () =>
+                    {
+                        int lost = gs.money;
+                        gs.ChangeMoney(-lost);
+                        gs.ChangeMood(-3);
+                        gs.AddPermanentFlag("ShowdownPaid");
+                        gs.AddHistory($"Handed over ${lost} to the man in the leather jacket");
+                    }, () => !Afford(100))
+                        .Reply(Thug, "Smart. See you around.", Happy)
+                    .Choice("Run", () =>
+                    {
+                        if (gs.energy >= 4 && Roll(0.6f))
+                        {
+                            gs.AddFlag("RanAway");
+                            gs.AddPermanentFlag("ShowdownEscaped");
+                            gs.ChangeEnergy(-3);
+                            gs.AddHistory("Outran the man in the leather jacket");
+                        }
+                        else
+                        {
+                            GetMugged();
+                            gs.AddPermanentFlag("ShowdownLost");
+                        }
+                    })
+                        .Reply(None, () => Has("RanAway")
+                            ? "You bolt down the alley, over a fence, through a neighbor's yard. You lock the door behind you and don't breathe for a full minute."
+                            : "You're too exhausted. Your legs give out after half a block. He takes everything."),
+
+                // ----- Allies: each one you earned this week shows up -----
+                new GameEvent("ShowdownDog")
+                    .When(() => Standoff() && HasDog() && !HasP("DogHurt"))
+                    .With(Dog, Annoyed)
+                    .Narrate("A furious bark erupts behind you. Your dog has squeezed through the gate.")
+                    .Say(Dog, "*GRRRRR. WOOF! WOOF! WOOF!*", Annoyed)
+                    .Choice("Good dog!", AllyArrives),
+
+                new GameEvent("ShowdownJoe")
+                    .When(() => Standoff() && Kindness() >= 2)
+                    .With(Vagrant, Annoyed)
+                    .Narrate("A familiar voice rings out from across the street.")
+                    .Say(Vagrant, "HEY! That's my friend you're messing with! I told you I'd look out for you!", Annoyed)
+                    .Choice("Joe!", AllyArrives),
+
+                new GameEvent("ShowdownNeighbor")
+                    .When(() => Standoff() && Count("NeighborFriendship") >= 2)
+                    .With(Neighbor, Annoyed)
+                    .Narrate("Your neighbor's porch light snaps on.")
+                    .Say(Neighbor, "I've already called the police, young man! And I have a garden hose, and I am NOT afraid to use it!", Annoyed)
+                    .Choice("...", AllyArrives),
+
+                new GameEvent("ShowdownNeighborHides", "Your neighbor's curtain twitches. Then the porch light clicks off.")
+                    .When(() => Standoff() && Count("NeighborFriendship") <= -2)
+                    .Choice("..."),
+
+                new GameEvent("ShowdownCoworker")
+                    .When(() => Standoff() && !HasP("BetrayedCoworker")
+                        && (HasP("CoworkerSacrifice") || HasP("SavedBoth") || Count("CoworkerFriendship") >= 3))
+                    .With(Coworker, Annoyed)
+                    .Narrate("Headlights swing around the corner and a horn blares. It's your coworker's car.")
+                    .Say(Coworker, () => HasP("CoworkerSacrifice")
+                        ? "You gave up your job for me. You think I'm driving past THIS?"
+                        : "Hey! HEY! Back off! I've got your plate number, pal!", Annoyed)
+                    .Choice("...", AllyArrives),
+
+                new GameEvent("ShowdownCoworkerDrivesOff", "Headlights sweep past. Your old coworker's car slows down... and keeps going.")
+                    .When(() => Standoff() && HasP("BetrayedCoworker"))
+                    .Choice("..."),
+
+                new GameEvent("ShowdownPetitioner")
+                    .When(() => Standoff() && HasP("PetitionSigned"))
+                    .With(Petitioner, Annoyed)
+                    .Narrate("A crowd rounds the corner, still carrying ROUTE 9 STAYS! signs from the victory rally.")
+                    .Say(Petitioner, "That's one of ours! Everybody, phones out! Start filming!", Annoyed)
+                    .Choice("...", AllyArrives),
+
+                // ----- How it ends depends on how many showed up -----
+                new GameEvent("ShowdownEnd")
+                    .When(Standoff)
+                    .With(Thug, Annoyed)
+                    .Narrate(() =>
+                    {
+                        if (Allies() == 0) return "You look around. Nobody's coming. The street is empty.";
+                        if (Allies() <= 2) return "He looks from you to your backup and back again. He swears under his breath.";
+                        return "Sirens wail. By the time the squad car arrives, half the street is out and he's backed against a wall, surrounded.";
+                    })
+                    .Say(Thug, () =>
+                    {
+                        if (Allies() == 0) return "Didn't think so. Wallet. Phone. NOW.";
+                        if (Allies() <= 2) return "This isn't over.";
+                        return "...Alright! Alright! I'm going!";
+                    }, () => Allies() == 0 ? Happy : Allies() <= 2 ? Annoyed : Surprised)
+                    .Choice("...", () =>
+                    {
+                        if (Allies() == 0)
+                        {
+                            GetMugged();
+                            gs.AddPermanentFlag("ShowdownLost");
+                        }
+                        else if (Allies() <= 2)
+                        {
+                            gs.AddPermanentFlag("ShowdownEscaped");
+                            gs.ChangeMood(2);
+                            gs.AddHistory($"{Allies()} friend(s) showed up. He backed off.");
+                        }
+                        else
+                        {
+                            gs.AddPermanentFlag("ShowdownWon");
+                            gs.AddPermanentFlag("ThugCaught");
+                            gs.ChangeMoney(100);
+                            gs.ChangeMood(4);
+                            gs.AddHistory($"{Allies()} people showed up for you. He was arrested. ($100 Crime Stoppers reward)");
+                        }
+                    })
+                        .Reply(None, () =>
+                        {
+                            if (HasP("ShowdownWon")) return "An officer shakes your hand. \"There's a Crime Stoppers reward for this one. $100.\" Your neighbors are clapping.";
+                            if (HasP("ShowdownEscaped")) return "He disappears into the dark. You're shaking, but you're okay. You weren't alone.";
+                            return "He's gone as fast as he came. So is everything in your pockets.";
+                        }),
+
                 // Payoff: kindness to Joe gets your things back.
                 new GameEvent("VagrantReturns")
                     .Once()
@@ -1478,6 +1897,36 @@ public static class DayEvents
                     })
                         .Reply(Dog, "*looks back at you from the kennel*", Sad),
 
+                // Consequence: the wallet you kept.
+                new GameEvent("NeighborWallet")
+                    .Once()
+                    .When(() => HasP("KeptWallet") && day > Count("WalletDay"))
+                    .With(Neighbor, HasP("SeenKeepingWallet") ? Annoyed : Sad)
+                    .Say(Neighbor, () => HasP("SeenKeepingWallet")
+                        ? "Mrs. Alvarez across the street saw you pick up my wallet. My RENT money. I trusted you."
+                        : "I lost my wallet this week. Rent money. I don't know what I'm going to do.",
+                        () => HasP("SeenKeepingWallet") ? Annoyed : Sad)
+                    .Choice("Confess and pay it back ($60)", () =>
+                    {
+                        Spend(60);
+                        gs.RemovePermanentFlag("KeptWallet");
+                        gs.AddCount("NeighborFriendship", 1);
+                        gs.AddHistory("Confessed and paid your neighbor back ($60)");
+                    }, () => Afford(60))
+                        .Reply(Neighbor, "...Thank you for telling me the truth. That took something.", Sad)
+                    .Choice("Deny it", () =>
+                    {
+                        gs.AddCount("NeighborFriendship", -4);
+                        gs.AddHistory("Denied taking your neighbor's wallet");
+                    }, () => HasP("SeenKeepingWallet"))
+                        .Reply(Neighbor, "Get off my porch.", Annoyed)
+                    .Choice("That's terrible", () =>
+                    {
+                        gs.ChangeMood(-2);
+                        gs.AddHistory("Kept quiet about the wallet. The guilt stings.");
+                    }, () => !HasP("SeenKeepingWallet"))
+                        .Reply(Neighbor, "I'll manage. Somehow.", Sad),
+
                 // Across the week: two friendly chats earn you cookies (once).
                 new GameEvent("NeighborCookies")
                     .When(CookiesShow)
@@ -1515,7 +1964,7 @@ public static class DayEvents
             // =====================================================================
             // HOME (evening)
             // =====================================================================
-            new DayStage(Location.Home,
+            new DayStage(Location.Home, Backdrop.HomeEvening,
 
                 // Consequence: ignored bill.
                 new GameEvent("PowerCut", () => HasP("PowerCut")
@@ -1614,9 +2063,165 @@ public static class DayEvents
                         gs.ChangeMood(1);
                         gs.AddTime(90);
                         gs.GoToBed();
-                    }, () => !PowerOff())
+                    }, () => !PowerOff()),
+
+                // Mon-Thu: end every day on a hook.
+                new GameEvent("Cliffhanger", () => Cliffhanger())
+                    .When(() => day < gs.totalDays && !gs.weekOver)
+                    .Choice("...")
             )
         };
 
+    }
+
+    // =====================================================================
+    // ENDING (shared by the epilogue and the week summary)
+    // =====================================================================
+    public static (string title, string text, Expression mood) GetEnding()
+    {
+        var gs = GameState.Instance;
+        bool HasP(string f) => gs.HasPermanentFlag(f);
+
+        if (HasP("Fired"))
+            return ("Pink Slip", "You were fired before the week was even over.", Sad);
+        if (HasP("Arrested"))
+            return ("Jailbird", "Easy money turned out to be very expensive. You have a court date in March.", Sad);
+        if (HasP("ShowdownWon"))
+            return ("Neighborhood Hero", HasP("LaidOff")
+                ? "You lost your job this week, but when it mattered, everyone you'd helped showed up for you."
+                : "When it mattered, everyone you'd helped showed up for you.", Happy);
+        if (HasP("CoworkerSacrifice"))
+            return ("The Fall Guy", "You lost your job but kept your friend, and a new job is already waiting. Some losses are wins.", Happy);
+        if (HasP("LaidOff"))
+            return ("Pink Slip", "You were laid off on Friday. The weekend feels very long.", Sad);
+        if (HasP("Promoted"))
+            return ("Top of the Ladder", "You got the promotion and the raise. You eat lunch alone now.", Neutral);
+        if (HasP("BetrayedCoworker"))
+            return ("Cutthroat", "You kept your job. Nobody sits with you at lunch anymore.", Sad);
+        if (gs.standing <= 2)
+            return ("On Thin Ice", "Your boss has put you on a final warning.", Annoyed);
+        if (gs.money <= 0)
+            return ("Flat Broke", "You made it to the weekend with empty pockets.", Sad);
+        if (gs.money >= 250)
+            return ("Looking Out for Number One", "Your bank account has never looked better. Your phone has never been quieter.", Happy);
+        if (gs.standing >= 8 || HasP("SavedBoth"))
+            return ("Rising Star", "Your boss is talking about a promotion.", Happy);
+        if (gs.mood >= 8)
+            return ("Good Vibes", "Work was fine, but you really enjoyed your week.", Happy);
+        return ("Survived", "Another week down.", Neutral);
+    }
+
+    // =====================================================================
+    // EPILOGUE: one slide per character, shown after the last day
+    // =====================================================================
+    public static DayStage BuildEpilogue()
+    {
+        var gs = GameState.Instance;
+        bool HasP(string f) => gs.HasPermanentFlag(f);
+        int Count(string k) => gs.GetCount(k);
+        var slides = new List<GameEvent>();
+
+        void Slide(string id, Backdrop scene, CharacterId who, Expression mood, string text)
+        {
+            slides.Add(new GameEvent("Epilogue_" + id)
+                .Scene(scene)
+                .With(who, mood)
+                .Narrate(text)
+                .Choice("Next"));
+        }
+
+        Slide("Open", Backdrop.OutsideHome, None, Neutral, gs.weekOver
+            ? "It ended sooner than you expected.\nHere's where everyone landed."
+            : "Saturday morning. The week is finally over.\nHere's where everyone landed.");
+
+        // ----- Your job -----
+        if (HasP("Fired"))
+            Slide("Job", Backdrop.MeetingRoom, Boss, Annoyed, "Your boss hired your replacement by Wednesday. Your desk plant didn't make it.");
+        else if (HasP("CoworkerSacrifice"))
+            Slide("Job", Backdrop.MeetingRoom, Boss, Sad, "You walked out with a cardboard box and your head held high. Your old boss wrote you a glowing reference anyway.");
+        else if (HasP("LaidOff"))
+            Slide("Job", Backdrop.MeetingRoom, Boss, Sad, "You walked out with a cardboard box. The job hunt starts Monday.");
+        else if (HasP("Promoted"))
+            Slide("Job", Backdrop.MeetingRoom, Boss, Happy, "You inherited the Henderson account, a raise, and your old coworker's desk by the window. The view is great.");
+        else if (HasP("SavedBoth"))
+            Slide("Job", Backdrop.MeetingRoom, Boss, Happy, "Corporate backed down. Your boss started calling you \"the one who stood up.\" A promotion is being discussed.");
+        else if (gs.standing >= 8)
+            Slide("Job", Backdrop.MeetingRoom, Boss, Happy, "Your boss put your name forward for a promotion.");
+        else if (gs.standing <= 2)
+            Slide("Job", Backdrop.MeetingRoom, Boss, Annoyed, "You kept your job. Barely. Your boss watches you like a hawk now.");
+        else
+            Slide("Job", Backdrop.Work, Boss, Neutral, "Monday will come, and you'll be at your desk. That's something.");
+
+        // ----- Your coworker -----
+        if (HasP("BetrayedCoworker") && HasP("CoworkerLaidOff"))
+            Slide("Coworker", Backdrop.OutsideWorkEvening, Coworker, Annoyed, "Your coworker cleaned out their desk that afternoon. They never answered your texts.");
+        else if (HasP("BetrayedCoworker"))
+            Slide("Coworker", Backdrop.Work, Coworker, Annoyed, "Your coworker kept their job. They didn't say goodbye to you.");
+        else if (HasP("CoworkerSacrifice"))
+            Slide("Coworker", Backdrop.CarEvening, Coworker, Happy, "Your coworker never forgot what you did. Two weeks later, they got you an interview at their cousin's firm. You start Monday.");
+        else if (HasP("CoworkerLaidOff"))
+            Slide("Coworker", Backdrop.OutsideWorkEvening, Coworker, Sad, "Your coworker was let go, but they know you fought for them. You still get tacos every Friday.");
+        else if (HasP("SavedBoth"))
+            Slide("Coworker", Backdrop.Work, Coworker, Happy, "You and your coworker still get tacos every Friday. You always try to pay. They never let you.");
+        else if (HasP("TookCredit") && Count("CoworkerFriendship") < 0)
+            Slide("Coworker", Backdrop.Work, Coworker, Annoyed, "Your coworker never mentioned the stolen idea. They just stopped sharing anything with you.");
+        else if (Count("CoworkerFriendship") >= 3)
+            Slide("Coworker", Backdrop.Work, Coworker, Happy, "Your coworker became a real friend.");
+        else
+            Slide("Coworker", Backdrop.Work, Coworker, Neutral, "You never really got to know your coworker. Maybe next week.");
+
+        // ----- Joe -----
+        if (HasP("VagrantHoused"))
+            Slide("Joe", Backdrop.BusDay, Vagrant, Happy, "Joe got a bed at the shelter on 5th. He works in the kitchen now, and he always saves you a plate on Sundays.");
+        else if (Count("VagrantKindness") >= 2)
+            Slide("Joe", Backdrop.BusDay, Vagrant, Happy, "Joe still rides Route 9 every morning. He always saves you a seat.");
+        else if (Count("VagrantKindness") >= 1)
+            Slide("Joe", Backdrop.BusDay, Vagrant, Neutral, "Sometimes you see Joe at the bus stop. He always waves.");
+
+        // ----- The dog -----
+        if (HasP("HasDog"))
+            Slide("Dog", Backdrop.Home, Dog, Happy, "Your dog sleeps at the foot of your bed now. You still haven't named him. He answers to \"Hey, buddy\" just fine.");
+        else if (HasP("DogGone") && Count("DogTrust") >= 1)
+            Slide("Dog", Backdrop.OutsideHome, Dog, Sad, "The stray found a family across town. You see him at the park sometimes. He still remembers you.");
+
+        // ----- The petitioner -----
+        if (HasP("PetitionSigned"))
+            Slide("Petitioner", Backdrop.BusDay, Petitioner, Happy, "Route 9 stayed. The woman with the clipboard is running for city council now. She has your vote.");
+        else if (HasP("MetPetitioner"))
+            Slide("Petitioner", Backdrop.CommuteToWork, Petitioner, Annoyed, "Route 9 is gone. The woman with the clipboard still glares at you when you pass the empty bus stop.");
+
+        // ----- The neighbor -----
+        if (Count("NeighborFriendship") >= 2)
+            Slide("Neighbor", Backdrop.OutsideHome, Neighbor, Happy, HasP("ShowdownWon")
+                ? "Your neighbor tells everyone about the night they held off a mugger with a garden hose. The story gets better every time."
+                : "Your neighbor brings over cookies every Sunday now. Still oatmeal raisin.");
+        else if (Count("NeighborFriendship") <= -2)
+            Slide("Neighbor", Backdrop.OutsideHome, Neighbor, Annoyed, HasP("SeenKeepingWallet")
+                ? "Your neighbor tells everyone on the street what you did with their rent money. Nobody waves anymore."
+                : "Your neighbor put up a fence.");
+        else if (HasP("KeptWallet"))
+            Slide("Neighbor", Backdrop.OutsideHome, Neighbor, Sad, "Your neighbor had to borrow rent from their sister. They never found out where their wallet went. You did.");
+
+        // ----- The man in the leather jacket -----
+        if (HasP("ShowdownWon"))
+            Slide("Thug", Backdrop.JailCell, Thug, Sad, "The man in the leather jacket is behind bars. The street feels safer, and people wave at you now.");
+        else if (HasP("ThugCaught"))
+            Slide("Thug", Backdrop.JailCell, Thug, Annoyed, "Your tip put him behind bars. For now, anyway.");
+        else if (HasP("ShowdownPaidOff"))
+            Slide("Thug", Backdrop.Warehouse, Thug, Happy, "He took his hundred and never bothered you again. Money talks.");
+        else if (HasP("ShowdownEscaped"))
+            Slide("Thug", Backdrop.Warehouse, Thug, Annoyed, "He's still out there somewhere. You take the long way home now.");
+        else if (HasP("ShowdownLost") || HasP("ShowdownPaid"))
+            Slide("Thug", Backdrop.Warehouse, Thug, Happy, "He's still out there. And he knows where you live.");
+
+        // ----- You -----
+        var ending = GetEnding();
+        slides.Add(new GameEvent("Epilogue_You")
+            .Scene(Backdrop.Home)
+            .With(Player, ending.mood)
+            .Narrate($"<b>{ending.title}</b>\n{ending.text}")
+            .Choice("See your week"));
+
+        return new DayStage(Location.Home, Backdrop.Home, slides.ToArray());
     }
 }
